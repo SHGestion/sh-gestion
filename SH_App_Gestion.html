@@ -568,7 +568,7 @@ const DEMO_PDF = [
 function isPDFType(mt){return mt==='application/pdf';}
 
 async function extraerConClaude(base64, mediaType) {
-  document.getElementById('proctxt').textContent = 'Claude está leyendo la factura...';
+  console.log('Iniciando extracción Claude...'); document.getElementById('proctxt').textContent = 'Claude está leyendo la factura...';
   document.getElementById('progf').style.width = '50%';
   const prompt = `Analiza esta factura chilena y extrae TODOS los productos.
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
@@ -639,7 +639,7 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     fGo(2);
   } catch(err) {
     document.getElementById('proc').style.display='none';
-    alert('Error al leer la factura: ' + err.message);
+    alert('Error: ' + err.message + ' | ' + JSON.stringify(err));
     console.error(err);
   }
 }
