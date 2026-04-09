@@ -645,6 +645,7 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 }
 
 function processFile(f) {
+  alert('Archivo: ' + f.name + ' | Tipo: ' + f.type + ' | Tamaño: ' + f.size);
   const isImg = f.type.startsWith('image/');
   if(!isImg && f.type!=='application/pdf'){alert('Selecciona imagen o PDF.');return;}
   document.getElementById('dzc').style.display='none';
