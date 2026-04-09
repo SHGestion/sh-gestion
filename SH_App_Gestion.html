@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SH Gestión — Cocina</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f7;color:#1d1d1f;font-size:15px}
+.header{background:#1F4E79;color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:700}
+.header select{font-size:13px;padding:5px 8px;border-radius:8px;border:none;background:rgba(255,255,255,0.2);color:#fff}
+.header select option{color:#000;background:#fff}
+.tabs{display:flex;background:#fff;border-bottom:1px solid #e0e0e0;position:sticky;top:52px;z-index:99;overflow-x:auto}
+.tab{padding:11px 18px;font-size:14px;cursor:pointer;border:none;background:none;color:#666;border-bottom:2px solid transparent;white-space:nowrap;flex-shrink:0;font-weight:500}
+.tab.active{color:#1F4E79;border-bottom-color:#1F4E79}
+.panel{display:none;padding:14px;max-width:960px;margin:0 auto}.panel.active{display:block}
+.card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid #e8e8e8}
+.badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;font-weight:600}
+.bi{background:#e3f2fd;color:#0d47a1}.bw{background:#fff8e1;color:#e65100}
+.bs{background:#e8f5e9;color:#1b5e20}.be{background:#ffebee;color:#b71c1c}
+.lbl{font-size:12px;color:#888;margin-bottom:3px;display:block}
+.field{margin-bottom:10px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.metric{background:#f5f5f7;border-radius:8px;padding:10px;text-align:center}
+.metric-val{font-size:20px;font-weight:700}
+.metric-lbl{font-size:11px;color:#888;margin-top:2px}
+input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;background:#fff;color:#1d1d1f}
+input:focus,select:focus{outline:none;border-color:#1F4E79}
+.btn{padding:9px 18px;border-radius:10px;font-size:14px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#1d1d1f;font-weight:500}
+.btn:active{transform:scale(0.97)}
+.btnp{background:#1F4E79;color:#fff;border-color:#1F4E79}
+.btns{background:#2e7d32;color:#fff;border-color:#2e7d32}
+.btnb{width:100%;margin-top:8px}
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.dz{border:2px dashed #ccc;border-radius:12px;padding:20px 14px;text-align:center;cursor:pointer;background:#fafafa;position:relative}
+.dz:active,.dz.drag{border-color:#1F4E79;background:#e3f2fd}
+.dz.loaded{border-color:#2e7d32;border-style:solid;background:#f1f8e9}
+.preview-img{max-width:100%;max-height:180px;border-radius:8px;margin-top:8px;object-fit:contain}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 8px;color:#888;font-weight:600;border-bottom:1px solid #eee;font-size:11px;text-transform:uppercase}
+td{padding:7px 8px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
+.rok{background:#f1f8e9}.rwarn{background:#fff8e1}.rerr{background:#ffebee}
+.nota{font-size:12px;color:#888;padding:7px 10px;background:#f5f5f7;border-radius:8px;margin-top:8px}
+.log-item{font-size:12px;padding:7px 10px;border-radius:8px;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.le{background:#e8f5e9;color:#1b5e20}.ls{background:#ffebee;color:#b71c1c}.la{background:#fff8e1;color:#e65100}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#1F4E79;border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.prog{height:4px;background:#eee;border-radius:2px;overflow:hidden;margin-top:6px}
+.progf{height:100%;background:#1F4E79;border-radius:2px;transition:width .3s}
+.warn-precio{color:#e65100;font-weight:700;font-size:11px}
+.ok-precio{color:#2e7d32;font-size:11px}
+.alerta-box{background:#fff3e0;border:1px solid #ffb300;border-radius:8px;padding:10px;margin:10px 0;font-size:13px;color:#e65100}
+.empty-state{text-align:center;padding:2rem;color:#888;font-size:14px}
+@media(max-width:500px){.g3,.g4{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>SH Gestión y Servicios SpA</h1>
+    <div style="font-size:11px;opacity:.8" id="semana-label">Cargando...</div>
+  </div>
+  <select id="usuario">
+    <option value="">— usuario —</option>
+    <option>Marcelo</option>
+    <option>Gisela</option>
+    <option>Mari</option>
+  </select>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="showTab('facturas',this)">Facturas</button>
+  <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
+  <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
+</div>
+
+<!-- ═══ TAB 1: FACTURAS ═══ -->
+<div class="panel active" id="tab-facturas">
+  <div id="fs1">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <strong>Nueva factura</strong><span class="badge bi">Paso 1 de 3</span>
+      </div>
+      <div class="g2">
+        <div class="field"><span class="lbl">Proveedor</span>
+          <select id="fprov"><option>Bidfood</option><option>Carnes Ñuble</option>
+          <option>Walmart Mayorista</option><option>Central Mayorista</option><option>Otro</option></select>
+        </div>
+        <div class="field"><span class="lbl">Fecha recepción</span>
+          <input type="date" id="ffecha">
+        </div>
+      </div>
+      <div class="field"><span class="lbl">N° factura</span>
+        <input type="text" id="fnum" placeholder="Se detecta automáticamente del documento">
+      </div>
+      <div class="dz" id="dz" ondragover="event.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')" ondrop="onDrop(event)">
+        <input type="file" id="fin" accept="image/*,.pdf" 
+          style="position:absolute;width:100%;height:100%;opacity:0;cursor:pointer;top:0;left:0;z-index:10"
+          onchange="onFile(this.files[0])">
+        <div id="dzc">
+          <div style="display:flex;justify-content:center;gap:24px;margin-bottom:12px">
+            <div style="text-align:center">
+              <div style="width:40px;height:40px;background:#e3f2fd;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1565c0" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+              </div>
+              <div style="font-size:12px;font-weight:600">Foto</div>
+              <div style="font-size:11px;color:#888">JPG PNG HEIC</div>
+            </div>
+            <div style="width:1px;background:#eee"></div>
+            <div style="text-align:center">
+              <div style="width:40px;height:40px;background:#ffebee;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c62828" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+              </div>
+              <div style="font-size:12px;font-weight:600">PDF digital</div>
+              <div style="font-size:11px;color:#888">Bidfood Ñuble etc.</div>
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:3px">Toca para subir foto o PDF</div>
+          <div style="font-size:12px;color:#888">Claude extrae todos los datos automáticamente</div>
+          <div style="font-size:11px;color:#aaa;margin-top:4px">Foto: luz uniforme · factura plana · encuadra toda la hoja</div>
+        </div>
+        <div id="dzp" style="display:none"></div>
+      </div>
+      <div id="proc" style="display:none;margin-top:10px;padding:10px;background:#f5f5f7;border-radius:8px">
+        <div style="font-size:13px"><span class="spin"></span><span id="proctxt">Procesando...</span></div>
+        <div class="prog"><div class="progf" id="progf" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:12px;color:#aaa;margin-bottom:6px">— demos —</div>
+    <div class="g2">
+      <button class="btn" onclick="simular('img')">Demo foto (Carnes Ñuble)</button>
+      <button class="btn" onclick="simular('pdf')">Demo PDF (Walmart)</button>
+    </div>
+  </div>
+
+  <div id="fs2" style="display:none">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <strong>Revisión de ítems</strong><span class="badge bw">Paso 2 de 3</span>
+        <span id="ftag" style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600"></span>
+      </div>
+      <div class="g4" id="fmet"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Descripción factura</th>
+            <th>Ingrediente sistema</th>
+            <th>Cant.</th><th>UM</th>
+            <th>P.Unit.</th><th>kg equiv.</th>
+            <th>P./kg factura</th><th>P./kg sistema</th>
+            <th>Dif.</th><th>Estado</th><th>Acción</th>
+          </tr></thead>
+          <tbody id="ftbody"></tbody>
+        </table>
+      </div>
+      <div class="nota">Amarillo = revisar mapeo. Rojo = sin mapeo. Naranja = diferencia de precio mayor al 5%.</div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="fGo(1)">← Volver</button>
+      <button class="btn btnp" onclick="fGo(3)">Confirmar →</button>
+    </div>
+  </div>
+
+  <div id="fs3" style="display:none">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <strong>Confirmar registro</strong><span class="badge bs">Paso 3 de 3</span>
+      </div>
+      <div class="g4">
+        <div class="metric"><div class="metric-val" id="fc1">0</div><div class="metric-lbl">ítems</div></div>
+        <div class="metric"><div class="metric-val" id="fc2">$0</div><div class="metric-lbl">total c/IVA</div></div>
+        <div class="metric"><div class="metric-val" id="fc3">$0</div><div class="metric-lbl">neto</div></div>
+        <div class="metric"><div class="metric-val" style="color:#2e7d32" id="fc4">+0 kg</div><div class="metric-lbl">stock</div></div>
+      </div>
+      <div id="falerta" style="display:none" class="alerta-box"></div>
+      <div class="field" style="margin-top:8px"><span class="lbl">Observaciones</span>
+        <input type="text" id="fobs" placeholder="Ej: llegaron 2 unidades menos de arvejas">
+      </div>
+      <div class="nota">Registrará ENTRADA en Movimientos · Actualizará stock · Actualizará precios con diferencia mayor a 5%</div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="fGo(2)">← Revisar</button>
+      <button class="btn btns" id="btnreg" onclick="registrarFactura()">Registrar entrada →</button>
+    </div>
+    <div id="fok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+  </div>
+</div>
+
+<!-- ═══ TAB 2: CONSUMO REAL ═══ -->
+<div class="panel" id="tab-consumo">
+  <div class="card">
+    <strong>Registro de consumo real</strong>
+    <div style="font-size:12px;color:#888;margin:4px 0 12px">Al cierre de cada servicio</div>
+    <div class="g2">
+      <div class="field"><span class="lbl">Fecha del servicio</span>
+        <select id="cfecha" onchange="cargarDia()">
+          <option value="">— seleccionar fecha —</option>
+        </select>
+      </div>
+      <div class="field"><span class="lbl">Raciones servidas (real)</span>
+        <input type="number" id="crac" placeholder="Ej: 118" min="0" max="300">
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="ccard">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+      <strong id="ctitulo">Selecciona una fecha</strong>
+      <span id="cbadge" class="badge bi"></span>
+    </div>
+    <div id="cloading" style="display:none;font-size:13px;color:#888;padding:8px 0">
+      <span class="spin"></span>Cargando ingredientes del día...
+    </div>
+    <div id="cempty" class="empty-state">Selecciona una fecha para ver los ingredientes planificados</div>
+    <div id="ctable-wrap" style="display:none">
+      <div class="nota" style="margin-bottom:10px">Solo ingresa donde el consumo difirió del plan. Deja en blanco si fue igual.</div>
+      <table>
+        <thead><tr>
+          <th>Preparación</th><th>Ingrediente</th>
+          <th>Raciones</th><th>Plan (kg)</th>
+          <th>Real (kg)</th><th>Diferencia</th><th>Tipo</th>
+        </tr></thead>
+        <tbody id="ctbody"></tbody>
+      </table>
+      <button class="btn btnb" style="font-size:13px;margin-top:8px" onclick="addFilaC()">+ Agregar ingrediente</button>
+    </div>
+  </div>
+
+  <div class="field"><span class="lbl">Observaciones del servicio</span>
+    <input type="text" id="cobs" placeholder="Ej: sobró puré, faltó ensalada de coliflor">
+  </div>
+  <button class="btn btns btnb" onclick="regConsumo()">Registrar consumo real →</button>
+  <div id="cok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+</div>
+
+<!-- ═══ TAB 3: MOVIMIENTOS ═══ -->
+<div class="panel" id="tab-movimientos">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <strong>Movimientos del día</strong>
+      <button class="btn" style="font-size:12px;padding:5px 10px" onclick="cargarMovimientos()">↻ Actualizar</button>
+    </div>
+    <div id="movlog"><div style="font-size:13px;color:#888;padding:6px 0"><span class="spin"></span>Cargando...</div></div>
+    <div style="height:1px;background:#eee;margin:14px 0"></div>
+    <strong>Ajuste manual de stock</strong>
+    <div style="margin-top:10px" class="g2">
+      <div class="field"><span class="lbl">Ingrediente</span>
+        <input type="text" id="ajing" placeholder="Nombre del ingrediente" list="maestro-list">
+        <datalist id="maestro-list"></datalist>
+      </div>
+      <div class="field"><span class="lbl">Tipo</span>
+        <select id="ajtipo">
+          <option value="AJUSTE">AJUSTE (inventario físico)</option>
+          <option value="MERMA">MERMA (pérdida/vencimiento)</option>
+        </select>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field"><span class="lbl">Cantidad (+ aumenta / − disminuye)</span>
+        <input type="number" id="ajcant" placeholder="Ej: -0.5 o 2.3" step="0.001">
+      </div>
+      <div class="field"><span class="lbl">Observación</span>
+        <input type="text" id="ajobs" placeholder="Motivo">
+      </div>
+    </div>
+    <button class="btn btnp btnb" onclick="regAjuste()">Registrar ajuste →</button>
+    <div id="ajok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-size:13px"></div>
+  </div>
+</div>
+
+<script>
+const ANTHROPIC_KEY = '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';
+const API = "https://script.google.com/macros/s/AKfycbwiwZVJx6YPwOTBRv5VrKtQMpnnMH4F8evUGgTycUrAzITfVtWlGkeAA4Dw985C_b9Vwg/exec";
+const hoy = new Date().toISOString().split('T')[0];
+document.getElementById('ffecha').value = hoy;
+
+// Estado global
+let maestroPrecios = {};
+let equivalencias = {};
+let detalleInsumos = [];
+let planificacion = [];
+let itemsF = [];
+let tipoF = '';
+let ingredientesDia = [];
+let filasExtra = [];
+
+// ── UTILIDADES ───────────────────────────────────────────────────────────────
+function parseFecha(raw) {
+  if(!raw) return '';
+  const s = raw.toString();
+  // Formato ISO con timezone: 2026-04-13T04:00:00.000Z
+  if(s.includes('T')) return s.substring(0, 10);
+  // Formato corto: 2026-04-13
+  if(s.match(/^\d{4}-\d{2}-\d{2}/)) return s.substring(0, 10);
+  return s;
+}
+
+function formatFechaDisplay(fecha) {
+  const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const d = new Date(fecha + 'T12:00:00');
+  return `${dias[d.getDay()]} ${d.getDate()} ${meses[d.getMonth()]}`;
+}
+
+// ── API GOOGLE SHEETS ────────────────────────────────────────────────────────
+async function gsGet(hoja) {
+  try {
+    const r = await fetch(`${API}?hoja=${encodeURIComponent(hoja)}`);
+    const data = await r.json();
+    return data.datos || [];
+  } catch(e) {
+    console.error('gsGet error:', hoja, e);
+    return [];
+  }
+}
+
+async function gsPost(hoja, fila) {
+  try {
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hoja, accion: 'append', fila})
+    });
+    return await r.json();
+  } catch(e) {
+    return {ok: false};
+  }
+}
+
+// ── CONVERSIÓN UNIDADES ──────────────────────────────────────────────────────
+function getKgFactor(desc, um) {
+  const d = (desc||'').toLowerCase();
+  const u = (um||'').toLowerCase();
+  if(u==='kg'||u==='kgs') return 1;
+  if(u==='lt'||u==='lts'||u==='litros') return 1;
+  if(d.includes('fideo')||d.includes('spaghetti')||d.includes('pasta')) return 0.4;
+  if(d.includes('huevo')) return 0.067;
+  if(d.includes('aceite')&&!d.includes('oliva')) return 0.9;
+  if(d.includes('jalea')||d.includes('mousse')||d.includes('bavarois')||d.includes('flan')||d.includes('sopa')||d.includes('caldo')) return 1.0;
+  if(d.includes('mayo')) return 1.0;
+  if(d.includes('leche cond')) return 0.397;
+  if(d.includes('mermelada')) return 0.25;
+  if(d.includes('watts')||d.includes('jugo')) return 1.5;
+  if(d.includes('jurel')) return 0.425;
+  if(d.includes('atun')||d.includes('atún')) return 1.0;
+  return 1.0;
+}
+
+function getCanon(nombre) {
+  const k = (nombre||'').trim().toUpperCase();
+  return equivalencias[k] || nombre.trim();
+}
+
+function getPrecioSistema(mapeo) {
+  if(!mapeo) return null;
+  const canon = getCanon(mapeo);
+  const info = maestroPrecios[canon.toUpperCase()];
+  return info ? info.precio : null;
+}
+
+// ── INICIALIZACIÓN ───────────────────────────────────────────────────────────
+async function init() {
+  // Maestro precios
+  const rows = await gsGet('Maestro_Precios');
+  rows.slice(1).forEach(r => {
+    if(r[0]) maestroPrecios[r[0].toString().trim().toUpperCase()] = {
+      nombre: r[0], um: r[1], precio: parseFloat(r[2]||0), proveedor: r[3]
+    };
+  });
+
+  // Equivalencias
+  const eqRows = await gsGet('Equivalencias');
+  eqRows.slice(1).forEach(r => {
+    if(r[0]&&r[1]) equivalencias[r[0].toString().trim().toUpperCase()] = r[1].toString().trim();
+  });
+
+  // DetalleInsumos_GS
+  const detRows = await gsGet('DetalleInsumos_GS');
+  detalleInsumos = detRows.slice(1).filter(r => r[0] && r[5]).map(r => ({
+    fecha:    parseFecha(r[0]),
+    estructura: r[1] || '',
+    raciones:   parseFloat(r[2]||0),
+    codReceta:  r[3] || '',
+    prep:       r[4] || '',
+    ingrediente: r[5] || '',
+    unidad:     r[6] || '',
+    crudoXRac:  parseFloat(r[7]||0),
+    crudoTotal: parseFloat(r[8]||0),
+  }));
+
+  // Planificacion_GS — para obtener fechas únicas
+  const planRows = await gsGet('Planificacion_GS');
+  planificacion = planRows.slice(1).filter(r => r[0] && r[3]).map(r => ({
+    fecha: parseFecha(r[0]),
+    estructura: r[1] || '',
+    prep: r[3] || '',
+    raciones: parseFloat(r[4]||0)
+  }));
+
+  // Obtener fechas únicas ordenadas
+  const fechasUnicas = [...new Set(detalleInsumos.map(r => r.fecha))].sort();
+
+  // Mostrar semana en header
+  if(fechasUnicas.length > 0) {
+    const ini = formatFechaDisplay(fechasUnicas[0]);
+    const fin = formatFechaDisplay(fechasUnicas[fechasUnicas.length-1]);
+    document.getElementById('semana-label').textContent = `Semana: ${ini} — ${fin}`;
+  }
+
+  // Poblar selector de fechas en Consumo Real
+  const sel = document.getElementById('cfecha');
+  fechasUnicas.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = formatFechaDisplay(f) + ' ' + f;
+    sel.appendChild(opt);
+  });
+
+  // Datalist maestro para ajustes
+  const dl = document.getElementById('maestro-list');
+  Object.values(maestroPrecios).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.nombre;
+    dl.appendChild(opt);
+  });
+
+  await cargarMovimientos();
+}
+
+// ── CONSUMO REAL — carga desde DetalleInsumos_GS ────────────────────────────
+async function cargarDia() {
+  const fecha = document.getElementById('cfecha').value;
+  if(!fecha) return;
+
+  document.getElementById('cloading').style.display = 'block';
+  document.getElementById('cempty').style.display = 'none';
+  document.getElementById('ctable-wrap').style.display = 'none';
+  document.getElementById('ctbody').innerHTML = '';
+  filasExtra = [];
+
+  // Filtrar ingredientes del día
+  ingredientesDia = detalleInsumos
+    .filter(r => r.fecha === fecha && r.ingrediente)
+    .map(r => ({
+      prep: r.prep,
+      ing: r.ingrediente,
+      raciones: r.raciones,
+      plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
+      real: ''
+    }));
+
+  document.getElementById('cloading').style.display = 'none';
+
+  if(ingredientesDia.length === 0) {
+    document.getElementById('cempty').style.display = 'block';
+    document.getElementById('cempty').textContent = 'No hay ingredientes planificados para esta fecha.';
+    document.getElementById('ctitulo').textContent = formatFechaDisplay(fecha);
+    document.getElementById('cbadge').textContent = '0 ingredientes';
+    return;
+  }
+
+  document.getElementById('ctitulo').textContent = `Consumos ${formatFechaDisplay(fecha)}`;
+  document.getElementById('cbadge').textContent = `${ingredientesDia.length} ingredientes planificados`;
+  document.getElementById('ctable-wrap').style.display = 'block';
+  renderC();
+}
+
+function renderC() {
+  const tb = document.getElementById('ctbody');
+  tb.innerHTML = '';
+  const todo = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
+
+  todo.forEach((row, i) => {
+    const r = parseFloat(row.real) || 0;
+    const isM = i >= ingredientesDia.length;
+    const dif = row.real !== '' ? r - row.plan : null;
+    const ds = dif !== null ? (dif >= 0 ? '+' : '') + dif.toFixed(3) + ' kg' : '—';
+    const dc = dif === null ? '#888' : dif > 0.05 ? '#c62828' : dif < -0.05 ? '#e65100' : '#2e7d32';
+    const tipo = dif === null ? '—' : dif > 0.05 ? 'Exceso' : dif < -0.05 ? 'Merma' : 'OK';
+
+    const ingH = isM
+      ? `<input type="text" value="${row.ing}" placeholder="Ingrediente" style="font-size:12px" onchange="updC(${i},'ing',this.value)" list="maestro-list">`
+      : `<strong style="font-size:12px">${row.ing}</strong>`;
+    const prepH = isM
+      ? `<input type="text" value="${row.prep||''}" placeholder="Preparación" style="font-size:12px" onchange="updC(${i},'prep',this.value)">`
+      : `<span style="font-size:11px;color:#888">${row.prep||''}</span>`;
+
+    tb.innerHTML += `<tr>
+      <td>${prepH}</td>
+      <td>${ingH}</td>
+      <td style="text-align:right;color:#888;font-size:12px">${row.raciones||''}</td>
+      <td style="text-align:right;color:#888;font-size:12px">${row.plan.toFixed(3)}</td>
+      <td><input type="number" step="0.001" min="0" value="${row.real}" placeholder="${row.plan.toFixed(3)}"
+          style="font-size:13px" onchange="updC(${i},'real',this.value)"></td>
+      <td style="text-align:right;color:${dc};font-weight:600;font-size:13px">${ds}</td>
+      <td style="font-size:12px;color:${dc}">${tipo}</td>
+    </tr>`;
+  });
+}
+
+function updC(i, k, v) {
+  if(i < ingredientesDia.length) ingredientesDia[i][k] = v;
+  else filasExtra[i - ingredientesDia.length][k] = v;
+  renderC();
+}
+
+function addFilaC() {
+  filasExtra.push({ing:'', prep:'', raciones:'', plan:0, real:''});
+  renderC();
+}
+
+async function regConsumo() {
+  const u = document.getElementById('usuario').value;
+  if(!u) { alert('Selecciona un usuario.'); return; }
+  const fecha = document.getElementById('cfecha').value;
+  if(!fecha) { alert('Selecciona una fecha.'); return; }
+  const obs = document.getElementById('cobs').value;
+  const todo = [...ingredientesDia, ...filasExtra];
+  const conDif = todo.filter(r => r.real !== '' && Math.abs(parseFloat(r.real) - r.plan) > 0.001);
+
+  for(const row of conDif) {
+    const real = parseFloat(row.real);
+    await gsPost('Movimientos', [fecha, 'SALIDA REAL', row.ing,
+      real.toFixed(3), 'Kg', '', '', 'PROD-REAL', 'Cocina', u,
+      `${row.prep||''} — ${obs||''}`]);
+    await gsPost('Produccion_Diaria', [fecha, '', row.prep||'', row.raciones||'', '',
+      row.ing, row.plan.toFixed(3), real.toFixed(3),
+      (real - row.plan).toFixed(3), u, obs||'']);
+  }
+
+  document.getElementById('cok').style.display = 'block';
+  document.getElementById('cok').textContent = conDif.length > 0
+    ? `✓ ${conDif.length} diferencias registradas en Google Sheets.`
+    : '✓ Sin diferencias — consumo igual al plan.';
+  await cargarMovimientos();
+}
+
+// ── FACTURAS ─────────────────────────────────────────────────────────────────
+const DEMO_IMG = [
+  {desc:"POSTA PALETA PAR",cant:21.61,um:"Kg",punit:6490,mapeo:"POSTA PALETA",conf:1},
+  {desc:"CARNE MOLIDA 10%",cant:10,um:"Kg",punit:5490,mapeo:"CARNE MOLIDA",conf:1},
+  {desc:"PULPA PIERNA DESH",cant:20.23,um:"Kg",punit:3490,mapeo:"PULPA CERDO",conf:2},
+  {desc:"SURTIDO MARISCOS",cant:10,um:"Kg",punit:3290,mapeo:"SURTIDO MARISCO",conf:2},
+  {desc:"PAPAS PREFRITAS 7MM",cant:30,um:"Kg",punit:1590,mapeo:"PAPAS PREFRITAS",conf:1},
+];
+const DEMO_PDF = [
+  {desc:"CREMA SURLAT",cant:6,um:"Un",punit:3252,mapeo:"CREMA DE LECHE",conf:2},
+  {desc:"FILETITO POL",cant:4,um:"Un",punit:18479,mapeo:"FILETITO DE POLLO",conf:2},
+  {desc:"PECHUGA POLL",cant:2,um:"Un",punit:18479,mapeo:"PECHUGA DE POLLO DESHUESADA",conf:2},
+  {desc:"CHAMPINON LA",cant:2,um:"Un",punit:2504,mapeo:"CHAMPIÑONES CONG",conf:2},
+  {desc:"CEBOLLA CUBO",cant:4,um:"Un",punit:2311,mapeo:"CEBOLLA CUBO",conf:1},
+  {desc:"ARVEJAS 1KG",cant:2,um:"Un",punit:2143,mapeo:"ARVEJAS",conf:1},
+  {desc:"ENSALADA LIS",cant:2,um:"Un",punit:2008,mapeo:"PRIMAVERA",conf:2},
+  {desc:"PRIETA PREM",cant:18,um:"Un",punit:1891,mapeo:"",conf:0},
+  {desc:"MARGARINA",cant:3,um:"Un",punit:2092,mapeo:"MARGARINA",conf:1},
+  {desc:"ACE.VEGETAL",cant:12,um:"Un",punit:1118,mapeo:"ACEITE VEGETAL",conf:1},
+  {desc:"ARROZG2",cant:10,um:"Un",punit:689,mapeo:"ARROZ",conf:1},
+  {desc:"FIDEO VTA SP",cant:10,um:"Un",punit:647,mapeo:"FIDEOS SPAGHETTI (400GRS)",conf:1},
+  {desc:"POROTO NEGRO",cant:4,um:"Un",punit:748,mapeo:"POROTO NEGRO",conf:1},
+];
+
+
+function isPDFType(mt){return mt==='application/pdf';}
+
+async function extraerConClaude(base64, mediaType) {
+  console.log('Iniciando extracción Claude...'); document.getElementById('proctxt').textContent = 'Claude está leyendo la factura...';
+  document.getElementById('progf').style.width = '50%';
+  const prompt = `Analiza esta factura chilena y extrae TODOS los productos.
+Responde ÚNICAMENTE con JSON válido, sin texto adicional:
+{
+  "proveedor": "nombre del proveedor",
+  "numero_factura": "número",
+  "fecha": "YYYY-MM-DD",
+  "items": [
+    {
+      "descripcion": "nombre producto tal como aparece",
+      "cantidad": número,
+      "unidad": "Kg o Un o Lt",
+      "precio_unitario": número entero sin puntos
+    }
+  ],
+  "total": número entero
+}`;
+  try {
+    const contentItem = isPDFType(mediaType)
+      ? {type:'document',source:{type:'base64',media_type:'application/pdf',data:base64}}
+      : {type:'image',source:{type:'base64',media_type:mediaType,data:base64}};
+    const response = await fetch(API, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({
+        model:'claude-opus-4-5',
+        max_tokens:2000,
+        messages:[{role:'user',content:[contentItem,{type:'text',text:prompt}]}]
+      })
+    });
+    document.getElementById('progf').style.width = '80%';
+    if(!response.ok){
+      const err = await response.json();
+      throw new Error(err.error?.message || 'Error API');
+    }
+    const data = await response.json();
+    const texto = data.content[0].text;
+    const jsonStr = texto.replace(/```json/g,'').replace(/```/g,'').replace(/\n/g,' ').trim();
+    const factura = JSON.parse(jsonStr);
+    document.getElementById('progf').style.width = '95%';
+    if(factura.proveedor) document.getElementById('fprov').value = factura.proveedor;
+    if(factura.numero_factura) document.getElementById('fnum').value = factura.numero_factura;
+    if(factura.fecha) document.getElementById('ffecha').value = factura.fecha;
+    itemsF = (factura.items||[]).map(it => {
+      const canon = getCanon(it.descripcion);
+      const enMaestro = maestroPrecios[canon.toUpperCase()];
+      return {
+        desc: it.descripcion,
+        cant: it.cantidad,
+        um: it.unidad||'Un',
+        punit: it.precio_unitario||0,
+        mapeo: enMaestro ? enMaestro.nombre : canon,
+        conf: enMaestro ? 1 : 2,
+        cantEdit: it.cantidad,
+        umEdit: it.unidad||'Un'
+      };
+    });
+    tipoF = isPDFType(mediaType) ? 'pdf' : 'img';
+    document.getElementById('proc').style.display='none';
+    renderTablaF();
+    fGo(2);
+  } catch(err) {
+    document.getElementById('proc').style.display='none';
+    alert('Error: ' + err.message + ' | ' + JSON.stringify(err));
+    console.error(err);
+  }
+}
+
+function processFile(f) {
+  alert('Archivo: ' + f.name + ' | Tipo: ' + f.type + ' | Tamaño: ' + f.size);
+  const isImg = f.type.startsWith('image/');
+  if(!isImg && f.type!=='application/pdf'){alert('Selecciona imagen o PDF.');return;}
+  document.getElementById('dzc').style.display='none';
+  document.getElementById('dzp').style.display='block';
+  document.getElementById('dz').classList.add('loaded');
+  document.getElementById('proc').style.display='block';
+  document.getElementById('proctxt').textContent='Leyendo documento...';
+  document.getElementById('progf').style.width='20%';
+  const reader = new FileReader();
+  reader.onload = e => {
+    const base64 = e.target.result.split(',')[1];
+    const mediaType = f.type;
+    if(isImg){
+      document.getElementById('dzp').innerHTML =
+        '<div style="font-size:13px;font-weight:600;color:#2e7d32;margin-bottom:6px">Imagen: '+f.name+'</div>'+
+        '<img src="'+e.target.result+'" style="max-width:100%;max-height:180px;border-radius:8px;object-fit:contain">';
+    } else {
+      document.getElementById('dzp').innerHTML =
+        '<div style="font-weight:600">'+f.name+'</div>'+
+        '<div style="font-size:12px;color:#888">'+Math.round(f.size/1024)+' KB — PDF</div>';
+    }
+    extraerConClaude(base64, mediaType);
+  };
+  reader.readAsDataURL(f);
+}
+
+function simular(tipo) {
+  tipoF = tipo;
+  itemsF = (tipo==='img' ? DEMO_IMG : DEMO_PDF).map(x=>({...x, cantEdit:x.cant, umEdit:x.um}));
+  const tag = document.getElementById('ftag');
+  if(tipo==='img'){
+    tag.textContent='Extraído de foto'; tag.style.background='#e3f2fd'; tag.style.color='#0d47a1';
+    document.getElementById('fprov').value='Carnes Ñuble';
+    document.getElementById('fnum').value='1990484';
+  } else {
+    tag.textContent='Extraído de PDF'; tag.style.background='#ffebee'; tag.style.color='#b71c1c';
+    document.getElementById('fprov').value='Walmart Mayorista';
+    document.getElementById('fnum').value='6360021';
+  }
+  renderTablaF();
+  fGo(2);
+}
+
+function renderTablaF() {
+  let ok=0, wn=0, er=0, alertas=[];
+  const tb = document.getElementById('ftbody');
+  tb.innerHTML = '';
+
+  itemsF.forEach((it, i) => {
+    if(it.conf===1) ok++; else if(it.conf===2) wn++; else er++;
+    const cls = it.conf===1?'rok':it.conf===2?'rwarn':'rerr';
+    const factor = getKgFactor(it.desc, it.umEdit||it.um);
+    const kgEquiv = parseFloat(it.cantEdit||it.cant) * factor;
+    const pxkgF = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+    const pSist = it.mapeo ? getPrecioSistema(it.mapeo) : null;
+    const difPct = pSist ? Math.abs(pxkgF - pSist)/pSist : 0;
+    const hayAlerta = pSist && difPct > 0.05;
+    if(hayAlerta) alertas.push({ing:it.mapeo, pF:Math.round(pxkgF), pS:pSist, d:Math.round(difPct*100)});
+
+    const st = it.conf===1
+      ? '<span style="color:#2e7d32;font-size:12px">OK</span>'
+      : it.conf===2 ? '<span style="color:#e65100;font-size:12px">Revisar</span>'
+      : '<span style="color:#c62828;font-size:12px">Sin mapeo</span>';
+
+    // Construir opciones del select — sin mapeo muestra "seleccionar" primero
+    const maestroOpts = Object.values(maestroPrecios)
+      .map(p=>`<option value="${p.nombre}"${(it.mapeo && p.nombre===it.mapeo)?' selected':''}>${p.nombre}</option>`).join('');
+
+    const selectHtml = `<select style="font-size:11px" onchange="mapF(${i},this.value)">
+      <option value=""${!it.mapeo?' selected':''}>— seleccionar —</option>
+      ${maestroOpts}
+      <option value="__new__">+ Nuevo ingrediente</option>
+    </select>`;
+
+    // Botón de confirmar línea
+    const btnConfirmar = it.conf===1
+      ? `<span style="color:#2e7d32;font-size:16px">✓</span>`
+      : `<button class="btn" style="padding:3px 8px;font-size:11px;background:#f5f5f7"
+           onclick="confirmarItem(${i})">✓ OK</button>`;
+
+    tb.innerHTML += `<tr class="${cls}">
+      <td><strong style="font-size:12px">${it.desc}</strong></td>
+      <td>${selectHtml}</td>
+      <td><input type="number" value="${it.cantEdit||it.cant}" style="font-size:12px;width:65px"
+          onchange="editF(${i},'cant',this.value)" step="0.001"></td>
+      <td><select style="font-size:11px;width:65px" onchange="editF(${i},'um',this.value)">
+        <option value="Un"${(it.umEdit||it.um)==='Un'?' selected':''}>Un</option>
+        <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
+        <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
+      </select></td>
+      <td style="text-align:right;font-size:12px">$${it.punit.toLocaleString('es-CL')}</td>
+      <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
+      <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
+      <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">${pSist?'$'+pSist.toLocaleString('es-CL')+'/kg':'—'}</td>
+      <td style="text-align:right" class="${hayAlerta?'warn-precio':''}">${pSist?(difPct>0?'+':'')+Math.round(difPct*100)+'%':'—'}</td>
+      <td>${st}</td>
+      <td style="text-align:center">${btnConfirmar}</td>
+    </tr>`;
+  });
+
+  document.getElementById('fmet').innerHTML = `
+    <div class="metric"><div class="metric-val">${itemsF.length}</div><div class="metric-lbl">ítems</div></div>
+    <div class="metric"><div class="metric-val" style="color:#2e7d32">${ok}</div><div class="metric-lbl">OK</div></div>
+    <div class="metric"><div class="metric-val" style="color:#e65100">${wn}</div><div class="metric-lbl">Revisar</div></div>
+    <div class="metric"><div class="metric-val" style="color:#c62828">${er}</div><div class="metric-lbl">Sin mapeo</div></div>`;
+
+  window._alertasPrecios = alertas;
+}
+
+function confirmarItem(i) {
+  if(itemsF[i].mapeo && itemsF[i].mapeo !== '') {
+    itemsF[i].conf = 1;
+    renderTablaF();
+  } else {
+    alert('Selecciona primero un ingrediente del sistema.');
+  }
+}
+
+function mapF(i, v) {
+  if(v==='__new__'){const n=prompt('Nombre del nuevo ingrediente:');if(n){itemsF[i].mapeo=n;itemsF[i].conf=1;}}
+  else if(v===''){itemsF[i].mapeo='';itemsF[i].conf=0;}
+  else{itemsF[i].mapeo=v;itemsF[i].conf=2;}
+  renderTablaF();
+}
+
+function editF(i, campo, val) {
+  if(campo==='cant') itemsF[i].cantEdit = parseFloat(val)||0;
+  if(campo==='um') itemsF[i].umEdit = val;
+  renderTablaF();
+}
+
+function fGo(n) {
+  ['fs1','fs2','fs3'].forEach((id,idx) => document.getElementById(id).style.display = idx===n-1?'block':'none');
+  if(n===3){
+    const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+    const f = tipoF==='img'?1.24:1.19;
+    document.getElementById('fc1').textContent = itemsF.length;
+    document.getElementById('fc2').textContent = '$'+Math.round(tot*f).toLocaleString('es-CL');
+    document.getElementById('fc3').textContent = '$'+Math.round(tot).toLocaleString('es-CL');
+    const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactor(it.desc,it.umEdit||it.um),0);
+    document.getElementById('fc4').textContent = '+'+kg.toFixed(1)+' kg';
+    const alertas = window._alertasPrecios||[];
+    const div = document.getElementById('falerta');
+    if(alertas.length>0){
+      div.style.display='block';
+      div.innerHTML = `<strong>⚠ ${alertas.length} precio(s) con diferencia mayor al 5%:</strong><br>`+
+        alertas.map(a=>`${a.ing}: factura $${a.pF.toLocaleString('es-CL')}/kg vs sistema $${a.pS.toLocaleString('es-CL')}/kg (+${a.d}%)`).join('<br>')+
+        '<br><span style="font-size:11px">Se actualizarán automáticamente en Maestro_Precios.</span>';
+    } else div.style.display='none';
+  }
+}
+
+async function registrarFactura() {
+  const u = document.getElementById('usuario').value;
+  if(!u){alert('Selecciona un usuario.');return;}
+  document.getElementById('btnreg').disabled = true;
+  document.getElementById('btnreg').textContent = 'Registrando...';
+  const fecha = document.getElementById('ffecha').value;
+  const prov = document.getElementById('fprov').value;
+  const nfact = document.getElementById('fnum').value;
+  const obs = document.getElementById('fobs').value;
+  for(const it of itemsF){
+    const factor = getKgFactor(it.desc, it.umEdit||it.um);
+    const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
+    const pxkg = (it.umEdit==='Kg'||it.um==='Kg')?it.punit*1.24:it.punit*1.19/factor;
+    await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
+  }
+  const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+  await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+  document.getElementById('fok').style.display='block';
+  document.getElementById('fok').textContent=`✓ ${itemsF.length} ítems registrados en Google Sheets.`;
+  await cargarMovimientos();
+}
+
+// ── MOVIMIENTOS ───────────────────────────────────────────────────────────────
+async function cargarMovimientos() {
+  const log = document.getElementById('movlog');
+  log.innerHTML = '<div style="font-size:13px;color:#888"><span class="spin"></span>Cargando...</div>';
+  const rows = await gsGet('Movimientos');
+  const delDia = rows.slice(1).filter(r => r[0] && parseFecha(r[0]) === hoy);
+  if(delDia.length===0){
+    log.innerHTML='<div style="font-size:13px;color:#888;padding:6px 0">Sin movimientos registrados hoy.</div>';
+    return;
+  }
+  log.innerHTML = delDia.slice(-20).reverse().map(r=>{
+    const tipo = r[1]||'';
+    const cls = tipo==='ENTRADA'?'le':tipo.includes('SALIDA')?'ls':'la';
+    return `<div class="log-item ${cls}">
+      <span>${tipo} — ${r[2]||''} — ${r[3]||''} ${r[4]||''}</span>
+      <span style="font-size:11px;opacity:.8">${r[9]||''}</span>
+    </div>`;
+  }).join('');
+}
+
+async function regAjuste() {
+  const u=document.getElementById('usuario').value;
+  const ing=document.getElementById('ajing').value;
+  const cant=document.getElementById('ajcant').value;
+  const tipo=document.getElementById('ajtipo').value;
+  const obs=document.getElementById('ajobs').value;
+  if(!u){alert('Selecciona usuario.');return;}
+  if(!ing||!cant){alert('Completa ingrediente y cantidad.');return;}
+  const r = await gsPost('Movimientos',[hoy,tipo,ing,parseFloat(cant).toFixed(3),'Kg','','','AJUSTE-MANUAL','',u,obs||tipo]);
+  const msg=document.getElementById('ajok');
+  msg.style.display='block';
+  msg.textContent=r.ok?`✓ ${tipo}: ${ing} (${parseFloat(cant)>0?'+':''}${parseFloat(cant).toFixed(3)} kg) registrado.`:'Error al registrar.';
+  document.getElementById('ajing').value='';
+  document.getElementById('ajcant').value='';
+  document.getElementById('ajobs').value='';
+  setTimeout(()=>msg.style.display='none',4000);
+  await cargarMovimientos();
+}
+
+function showTab(id, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+init();
+</script>
+</body>
+</html>
