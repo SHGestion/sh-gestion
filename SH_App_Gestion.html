@@ -611,9 +611,7 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     }
     const data = await response.json();
     const texto = data.content[0].text;
-    const jsonStr = texto.replace(/```json
-?/g,'').replace(/```
-?/g,'').trim();
+    const jsonStr = texto.replace(/```json/g,'').replace(/```/g,'').replace(/\n/g,' ').trim();
     const factura = JSON.parse(jsonStr);
     document.getElementById('progf').style.width = '95%';
     if(factura.proveedor) document.getElementById('fprov').value = factura.proveedor;
