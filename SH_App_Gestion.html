@@ -655,8 +655,24 @@ function processFile(f) {
   document.getElementById('progf').style.width='20%';
   const reader = new FileReader();
   reader.onload = e => {
-    const base64 = e.target.result.split(',')[1];
     const mediaType = f.type;
+    // Comprimir imagen antes de enviar
+    if(mediaType.startsWith('image/')) {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxW = 1200;
+        const scale = Math.min(1, maxW / img.width);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+        extraerConClaude(base64, 'image/jpeg');
+      };
+      img.src = e.target.result;
+      return;
+    }
+    const base64 = e.target.result.split(',')[1];
     if(isImg){
       document.getElementById('dzp').innerHTML =
         '<div style="font-size:13px;font-weight:600;color:#2e7d32;margin-bottom:6px">Imagen: '+f.name+'</div>'+
