@@ -799,7 +799,15 @@ function confirmarItem(i) {
 }
 
 function mapF(i, v) {
-  if(v==='__new__'){const n=prompt('Nombre del nuevo ingrediente:');if(n){itemsF[i].mapeo=n;itemsF[i].conf=1;}}
+  if(v==='__new__'){
+    const n=prompt('Nombre del nuevo ingrediente:');
+    if(n&&n.trim()){
+      const nombre=n.trim().toUpperCase();
+      itemsF[i].mapeo=nombre;
+      itemsF[i].conf=1;
+      if(!maestroPrecios[nombre]) maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
+    }
+  }
   else if(v===''){itemsF[i].mapeo='';itemsF[i].conf=0;}
   else{itemsF[i].mapeo=v;itemsF[i].conf=2;}
   renderTablaF();
