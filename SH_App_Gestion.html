@@ -100,7 +100,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       </div>
       <div class="dz" id="dz" onclick="document.getElementById('fin').click()" ondragover="event.preventDefault();this.classList.add('drag')"
         ondragleave="this.classList.remove('drag')" ondrop="onDrop(event)">
-        <input type="file" id="fin" accept="image/*,.pdf" style="display:none" onchange="if(this.files[0])processFile(this.files[0])">
+        <input type="file" id="fin" accept="image/*,.pdf" style="display:none!important" onchange="if(this.files[0])processFile(this.files[0])">
         <div id="dzc">
           <div style="display:flex;justify-content:center;gap:24px;margin-bottom:12px">
             <div style="text-align:center">
