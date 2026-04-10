@@ -309,7 +309,11 @@ function formatFechaDisplay(fecha) {
 // ── API GOOGLE SHEETS ────────────────────────────────────────────────────────
 async function gsGet(hoja) {
   try {
-    const r = await fetch(`${API}?hoja=${encodeURIComponent(hoja)}`);
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hoja, accion: 'get'})
+    });
     const data = await r.json();
     return data.datos || [];
   } catch(e) {
