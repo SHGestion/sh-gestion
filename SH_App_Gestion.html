@@ -567,55 +567,73 @@ const DEMO_PDF = [
 function isPDFType(mt){return mt==='application/pdf';}
 
 async function extraerConClaude(base64, mediaType) {
-  console.log('Iniciando extracción Claude...'); document.getElementById('proctxt').textContent = 'Claude está leyendo la factura...';
+  document.getElementById('proctxt').textContent = 'Claude está leyendo la factura...';
   document.getElementById('progf').style.width = '50%';
+
   const prompt = `Analiza esta factura chilena y extrae TODOS los productos.
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 {
   "proveedor": "nombre del proveedor",
-  "numero_factura": "número",
+  "numero_factura": "numero",
   "fecha": "YYYY-MM-DD",
-  "items": [
-    {
-      "descripcion": "nombre producto tal como aparece",
-      "cantidad": número,
-      "unidad": "Kg o Un o Lt",
-      "precio_unitario": número entero sin puntos
-    }
-  ],
-  "total": número entero
+  "items": [{"descripcion": "nombre producto", "cantidad": 1, "unidad": "Kg o Un", "precio_unitario": 1000}],
+  "total": 1000
 }`;
+
   try {
+    // Comprimir imagen
+    let finalBase64 = base64;
+    let finalType = mediaType;
+    if(!isPDFType(mediaType)) {
+      await new Promise(resolve => {
+        const img2 = new Image();
+        img2.onload = () => {
+          const cv = document.createElement('canvas');
+          const maxS = 1000;
+          const sc = Math.min(1, maxS/Math.max(img2.width, img2.height));
+          cv.width = img2.width*sc;
+          cv.height = img2.height*sc;
+          cv.getContext('2d').drawImage(img2, 0, 0, cv.width, cv.height);
+          finalBase64 = cv.toDataURL('image/jpeg', 0.6).split(',')[1];
+          finalType = 'image/jpeg';
+          resolve();
+        };
+        img2.src = 'data:'+mediaType+';base64,'+base64;
+      });
+    }
+
     const contentItem = isPDFType(mediaType)
-      ? {type:'document',source:{type:'base64',media_type:'application/pdf',data:base64}}
-      : {type:'image',source:{type:'base64',media_type:mediaType,data:base64}};
-    const response = await fetch(API, {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
-      },
+      ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:finalBase64}}
+      : {type:'image', source:{type:'base64', media_type:finalType, data:finalBase64}};
+
+    const response = await fetch('https://sh-claude-proxy.msothersm.workers.dev', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        model:'claude-opus-4-5',
-        max_tokens:2000,
-        messages:[{role:'user',content:[contentItem,{type:'text',text:prompt}]}]
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        messages: [{role:'user', content:[contentItem, {type:'text', text:prompt}]}]
       })
     });
+
     document.getElementById('progf').style.width = '80%';
-    if(!response.ok){
+
+    if(!response.ok) {
       const err = await response.json();
-      throw new Error(err.error?.message || 'Error API');
+      throw new Error(err.error?.message || 'Error API: ' + response.status);
     }
+
     const data = await response.json();
     const texto = data.content[0].text;
-    const jsonStr = texto.replace(/```json/g,'').replace(/```/g,'').replace(/\n/g,' ').trim();
-    const factura = JSON.parse(jsonStr);
     document.getElementById('progf').style.width = '95%';
+
+    const jsonStr = texto.replace(/```json/g,'').replace(/```/g,'').trim();
+    const factura = JSON.parse(jsonStr);
+
     if(factura.proveedor) document.getElementById('fprov').value = factura.proveedor;
     if(factura.numero_factura) document.getElementById('fnum').value = factura.numero_factura;
     if(factura.fecha) document.getElementById('ffecha').value = factura.fecha;
+
     itemsF = (factura.items||[]).map(it => {
       const canon = getCanon(it.descripcion);
       const enMaestro = maestroPrecios[canon.toUpperCase()];
@@ -630,16 +648,19 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
         umEdit: it.unidad||'Un'
       };
     });
+
     tipoF = isPDFType(mediaType) ? 'pdf' : 'img';
     document.getElementById('proc').style.display='none';
     renderTablaF();
     fGo(2);
+
   } catch(err) {
     document.getElementById('proc').style.display='none';
     alert('Error: ' + err.message + ' | ' + JSON.stringify(err));
     console.error(err);
   }
 }
+
 
 function processFile(f) {
   alert('Archivo: ' + f.name + ' | Tipo: ' + f.type + ' | Tamaño: ' + f.size);
