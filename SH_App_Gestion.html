@@ -805,7 +805,12 @@ function mapF(i, v) {
       const nombre=n.trim().toUpperCase();
       itemsF[i].mapeo=nombre;
       itemsF[i].conf=1;
-      if(!maestroPrecios[nombre]) maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
+      if(!maestroPrecios[nombre]) {
+      maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
+      // Guardar en Google Sheets
+      const precio_nuevo = prompt('Precio por kg/lt de ' + nombre + ' (deja en blanco si no sabes):');
+      gsPost('Maestro_Precios', [nombre, 'kg', parseFloat(precio_nuevo)||0, 'Ingresado desde app']);
+    }
     }
   }
   else if(v===''){itemsF[i].mapeo='';itemsF[i].conf=0;}
