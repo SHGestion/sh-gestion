@@ -774,7 +774,7 @@ function renderTablaF() {
         <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
         <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
       </select></td>
-      <td style="text-align:right;font-size:12px">$${it.punit.toLocaleString('es-CL')}</td>
+      <td style="text-align:right"><input type="number" value="${it.punit}" style="font-size:12px;width:75px;text-align:right" onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
       <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">${pSist?'$'+pSist.toLocaleString('es-CL')+'/kg':'—'}</td>
@@ -825,6 +825,7 @@ function mapF(i, v) {
 function editF(i, campo, val) {
   if(campo==='cant') itemsF[i].cantEdit = parseFloat(val)||0;
   if(campo==='um') itemsF[i].umEdit = val;
+  if(campo==='punit') itemsF[i].punit = parseFloat(val)||0;
   renderTablaF();
 }
 
