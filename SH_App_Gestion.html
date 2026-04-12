@@ -370,11 +370,15 @@ function getPrecioSistema(mapeo) {
 async function init() {
   // Maestro precios
   const rows = await gsGet('Maestro_Precios');
+  const provSet = new Set(['Bidfood','Carnes Ñuble','Walmart Mayorista','Central Mayorista']);
   rows.slice(1).forEach(r => {
     if(r[0]) maestroPrecios[r[0].toString().trim().toUpperCase()] = {
       nombre: r[0], um: r[1], precio: parseFloat(r[2]||0), proveedor: r[3]
     };
+    if(r[3] && r[3].toString().trim()) provSet.add(r[3].toString().trim());
   });
+  const dl = document.getElementById('fprov-list');
+  if(dl) dl.innerHTML = [...provSet].sort().map(p=>`<option value="${p}">`).join('');
 
   // Equivalencias
   const eqRows = await gsGet('Equivalencias');
