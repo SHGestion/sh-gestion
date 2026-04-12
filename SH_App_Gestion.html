@@ -870,6 +870,16 @@ async function registrarFactura() {
   document.getElementById('fok').style.display='block';
   document.getElementById('fok').textContent=`✓ ${itemsF.length} ítems registrados en Google Sheets.`;
   await cargarMovimientos();
+  setTimeout(() => {
+    itemsF = [];
+    tipoF = '';
+    document.getElementById('fok').style.display='none';
+    document.getElementById('ffile').value='';
+    document.getElementById('fprov').value='';
+    document.getElementById('fnum').value='';
+    document.getElementById('fobs').value='';
+    fGo(1);
+  }, 2500);
 }
 
 // ── MOVIMIENTOS ───────────────────────────────────────────────────────────────
