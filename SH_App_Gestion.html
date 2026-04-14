@@ -88,8 +88,8 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       </div>
       <div class="g2">
         <div class="field"><span class="lbl">Proveedor</span>
-          <select id="fprov"><option>Bidfood</option><option>Carnes Ñuble</option>
-          <option>Walmart Mayorista</option><option>Central Mayorista</option><option>Otro</option></select>
+          <input type="text" id="fprov" list="fprov-list" placeholder="Nombre proveedor" autocomplete="off" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-size:14px">
+          <datalist id="fprov-list"></datalist>
         </div>
         <div class="field"><span class="lbl">Fecha recepción</span>
           <input type="date" id="ffecha">
@@ -371,6 +371,8 @@ async function init() {
   // Maestro precios
   const rows = await gsGet('Maestro_Precios');
   const provSet = new Set(['Bidfood','Carnes Ñuble','Walmart Mayorista','Central Mayorista']);
+  const provRows = await gsGet('Proveedores_GS');
+  provRows.slice(0).forEach(r => { if(r[0] && r[0].toString().trim()) provSet.add(r[0].toString().trim()); });
   rows.slice(1).forEach(r => {
     if(r[0]) maestroPrecios[r[0].toString().trim().toUpperCase()] = {
       nombre: r[0], um: r[1], precio: parseFloat(r[2]||0), proveedor: r[3]
@@ -872,6 +874,13 @@ async function registrarFactura() {
   }
   const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
   await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+  // Guardar proveedor nuevo si no estaba en la lista
+  if(prov && ![...document.getElementById('fprov-list').options].map(o=>o.value).includes(prov)) {
+    await gsPost('Proveedores_GS', [prov]);
+    const newOpt = document.createElement('option');
+    newOpt.value = prov;
+    document.getElementById('fprov-list').appendChild(newOpt);
+  }
   const nItems = itemsF.length;
   document.getElementById('fok').style.display='block';
   document.getElementById('fok').textContent=`✓ ${nItems} ítems registrados en Google Sheets.`;
@@ -879,10 +888,12 @@ async function registrarFactura() {
     itemsF = [];
     tipoF = '';
     document.getElementById('fok').style.display='none';
-    document.getElementById('ffile').value='';
-    document.getElementById('fprov').value='';
-    document.getElementById('fnum').value='';
-    document.getElementById('fobs').value='';
+    const fprov = document.getElementById('fprov');
+    const fnum = document.getElementById('fnum');
+    const fobs = document.getElementById('fobs');
+    if(fprov) fprov.value='';
+    if(fnum) fnum.value='';
+    if(fobs) fobs.value='';
     fGo(1);
     cargarMovimientos();
   }, 2500);
