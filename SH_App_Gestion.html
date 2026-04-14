@@ -377,8 +377,8 @@ async function init() {
     };
     if(r[3] && r[3].toString().trim()) provSet.add(r[3].toString().trim());
   });
-  const dl = document.getElementById('fprov-list');
-  if(dl) dl.innerHTML = [...provSet].sort().map(p=>`<option value="${p}">`).join('');
+  const provDl = document.getElementById('fprov-list');
+  if(provDl) provDl.innerHTML = [...provSet].sort().map(p=>`<option value="${p}">`).join('');
 
   // Equivalencias
   const eqRows = await gsGet('Equivalencias');
