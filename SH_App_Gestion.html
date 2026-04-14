@@ -872,9 +872,9 @@ async function registrarFactura() {
   }
   const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
   await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+  const nItems = itemsF.length;
   document.getElementById('fok').style.display='block';
-  document.getElementById('fok').textContent=`✓ ${itemsF.length} ítems registrados en Google Sheets.`;
-  await cargarMovimientos();
+  document.getElementById('fok').textContent=`✓ ${nItems} ítems registrados en Google Sheets.`;
   setTimeout(() => {
     itemsF = [];
     tipoF = '';
@@ -884,6 +884,7 @@ async function registrarFactura() {
     document.getElementById('fnum').value='';
     document.getElementById('fobs').value='';
     fGo(1);
+    cargarMovimientos();
   }, 2500);
 }
 
