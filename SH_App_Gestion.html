@@ -754,6 +754,7 @@ function renderTablaF() {
 
     // Construir opciones del select — sin mapeo muestra "seleccionar" primero
     const maestroOpts = Object.values(maestroPrecios)
+      .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'))
       .map(p=>`<option value="${p.nombre}"${(it.mapeo && p.nombre===it.mapeo)?' selected':''}>${p.nombre}</option>`).join('');
 
     const selectHtml = `<select style="font-size:11px" onchange="mapF(${i},this.value)">
