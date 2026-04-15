@@ -471,8 +471,7 @@ async function cargarDia() {
       ing: r.ingrediente,
       raciones: r.raciones,
       plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
-      real: (r.crudoTotal / 1000).toFixed(3),
-      real: ''
+      real: (r.crudoTotal / 1000).toFixed(3)
     }));
 
   document.getElementById('cloading').style.display = 'none';
