@@ -77,6 +77,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab active" onclick="showTab('facturas',this)">Facturas</button>
   <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
+  <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
 </div>
 
 <!-- ═══ TAB 1: FACTURAS ═══ -->
@@ -238,6 +239,16 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </div>
 
 <!-- ═══ TAB 3: MOVIMIENTOS ═══ -->
+<div class="panel" id="tab-stock">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <strong>Stock actual valorizado</strong>
+      <button class="btn" style="font-size:12px;padding:5px 10px" onclick="cargarStock()">↻ Actualizar</button>
+    </div>
+    <div id="stock-wrap"><div style="font-size:13px;color:#888;padding:6px 0">Toque Actualizar para calcular el stock.</div></div>
+  </div>
+</div>
+
 <div class="panel" id="tab-movimientos">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -936,6 +947,94 @@ async function regAjuste() {
   document.getElementById('ajobs').value='';
   setTimeout(()=>msg.style.display='none',4000);
   await cargarMovimientos();
+}
+
+// ── STOCK ────────────────────────────────────────────────────────────────────
+async function cargarStock() {
+  const wrap = document.getElementById('stock-wrap');
+  wrap.innerHTML = '<div style="font-size:13px;color:#888;padding:6px 0"><span class="spin"></span>Calculando stock...</div>';
+
+  const rows = await gsGet('Movimientos');
+  if(!rows || rows.length < 2) {
+    wrap.innerHTML = '<div style="color:#888;font-size:13px">Sin movimientos registrados.</div>';
+    return;
+  }
+
+  // Calcular stock por ingrediente
+  const stock = {};
+  rows.slice(1).forEach(r => {
+    const ing = (r[2] || '').toString().trim().toUpperCase();
+    if(!ing) return;
+    const tipo = (r[1] || '').toString().trim().toUpperCase();
+    const cant = parseFloat(r[3]) || 0;
+    const precio = parseFloat(r[5]) || 0;
+
+    if(!stock[ing]) stock[ing] = { nombre: (r[2]||'').toString().trim(), cantidad: 0, precio: 0 };
+
+    if(tipo === 'STOCK INICIAL' || tipo === 'ENTRADA') {
+      stock[ing].cantidad += cant;
+      if(precio > 0) stock[ing].precio = precio;
+    } else if(tipo === 'SALIDA REAL' || tipo === 'SALIDA PLAN' || tipo === 'MERMA') {
+      stock[ing].cantidad -= cant;
+    } else if(tipo === 'AJUSTE') {
+      stock[ing].cantidad += cant; // puede ser negativo
+    }
+  });
+
+  // Filtrar solo stock > 0
+  const activos = Object.values(stock)
+    .filter(s => s.cantidad > 0.001)
+    .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  if(activos.length === 0) {
+    wrap.innerHTML = '<div style="color:#888;font-size:13px">No hay ingredientes con stock mayor a cero.</div>';
+    return;
+  }
+
+  // Buscar precio en maestro si no tiene precio en movimientos
+  activos.forEach(s => {
+    if(s.precio === 0) {
+      const info = maestroPrecios[s.nombre.toUpperCase()];
+      if(info) s.precio = info.precio;
+    }
+  });
+
+  const totalGeneral = activos.reduce((sum, s) => sum + s.cantidad * s.precio, 0);
+
+  let html = `<div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead>
+      <tr style="background:#1F4E79;color:#fff">
+        <th style="padding:8px 10px;text-align:left">Ingrediente</th>
+        <th style="padding:8px 10px;text-align:right">Cantidad (kg)</th>
+        <th style="padding:8px 10px;text-align:right">Precio Unit.</th>
+        <th style="padding:8px 10px;text-align:right">Costo Total</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  activos.forEach((s, i) => {
+    const total = s.cantidad * s.precio;
+    const bg = i % 2 === 0 ? '#fff' : '#f5f5f7';
+    html += `<tr style="background:${bg}">
+      <td style="padding:7px 10px">${s.nombre}</td>
+      <td style="padding:7px 10px;text-align:right">${s.cantidad.toFixed(3)}</td>
+      <td style="padding:7px 10px;text-align:right">${s.precio > 0 ? '$'+Math.round(s.precio).toLocaleString('es-CL') : '—'}</td>
+      <td style="padding:7px 10px;text-align:right">${s.precio > 0 ? '$'+Math.round(total).toLocaleString('es-CL') : '—'}</td>
+    </tr>`;
+  });
+
+  html += `</tbody>
+    <tfoot>
+      <tr style="background:#1F4E79;color:#fff;font-weight:700">
+        <td colspan="3" style="padding:8px 10px;text-align:right">TOTAL VALORIZADO</td>
+        <td style="padding:8px 10px;text-align:right">$${Math.round(totalGeneral).toLocaleString('es-CL')}</td>
+      </tr>
+    </tfoot>
+  </table></div>
+  <div style="font-size:11px;color:#888;margin-top:8px">${activos.length} ingredientes con stock · Actualizado al ${new Date().toLocaleString('es-CL')}</div>`;
+
+  wrap.innerHTML = html;
 }
 
 function showTab(id, el) {
