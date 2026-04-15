@@ -981,7 +981,11 @@ async function cargarStock() {
     }
   });
 
-  // Filtrar solo stock > 0
+  // Separar negativos y positivos
+  const negativos = Object.values(stock)
+    .filter(s => s.cantidad < -0.001)
+    .sort((a,b) => a.cantidad - b.cantidad);
+
   const activos = Object.values(stock)
     .filter(s => s.cantidad > 0.001)
     .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -1001,7 +1005,29 @@ async function cargarStock() {
 
   const totalGeneral = activos.reduce((sum, s) => sum + s.cantidad * s.precio, 0);
 
-  let html = `<div style="overflow-x:auto">
+  let html = '';
+
+  // Alerta de stock negativo
+  if(negativos.length > 0) {
+    html += `<div style="background:#ffebee;border-left:4px solid #c62828;border-radius:4px;padding:12px 14px;margin-bottom:14px">
+      <div style="color:#b71c1c;font-weight:700;font-size:13px;margin-bottom:8px">⚠ ${negativos.length} ingrediente(s) con stock negativo</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="color:#b71c1c;font-weight:600">
+          <td style="padding:3px 8px">Ingrediente</td>
+          <td style="padding:3px 8px;text-align:right">Stock actual</td>
+          <td style="padding:3px 8px;text-align:center">UM</td>
+        </tr>`;
+    negativos.forEach(s => {
+      html += `<tr style="color:#c62828">
+        <td style="padding:3px 8px">${s.nombre}</td>
+        <td style="padding:3px 8px;text-align:right;font-weight:700">${s.cantidad.toFixed(3)}</td>
+        <td style="padding:3px 8px;text-align:center">${s.um}</td>
+      </tr>`;
+    });
+    html += `</table></div>`;
+  }
+
+  html += `<div style="overflow-x:auto">
   <table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead>
       <tr style="background:#1F4E79;color:#fff">
