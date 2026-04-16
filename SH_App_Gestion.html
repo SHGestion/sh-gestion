@@ -78,6 +78,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
+  <button class="tab" onclick="showTab('stockinicial',this)">Stock inicial</button>
 </div>
 
 <!-- ═══ TAB 1: FACTURAS ═══ -->
@@ -239,6 +240,32 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </div>
 
 <!-- ═══ TAB 3: MOVIMIENTOS ═══ -->
+<div class="panel" id="tab-stockinicial">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong>Registrar stock inicial faltante</strong>
+      <span style="font-size:12px;color:#888">Productos con stock negativo</span>
+    </div>
+    <div style="font-size:12px;color:#e65100;background:#fff3e0;padding:8px 12px;border-radius:8px;margin-bottom:14px">
+      Ingresa la cantidad que tenías de cada producto al inicio. Deja en 0 si no tenías.
+    </div>
+    <div style="margin-bottom:10px" class="g2">
+      <div class="field"><span class="lbl">Fecha inventario</span>
+        <input type="date" id="si-fecha" value="2026-04-10">
+      </div>
+      <div class="field"><span class="lbl">Responsable</span>
+        <select id="si-usuario">
+          <option value="">— usuario —</option>
+          <option>Marcelo</option><option>Gisela</option><option>Mari</option>
+        </select>
+      </div>
+    </div>
+    <div id="si-tabla"></div>
+    <button class="btn btnp" style="margin-top:14px;width:100%" onclick="registrarStockInicial()">Registrar stock inicial →</button>
+    <div id="si-ok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+  </div>
+</div>
+
 <div class="panel" id="tab-stock">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -1063,6 +1090,48 @@ async function cargarStock() {
   <div style="font-size:11px;color:#888;margin-top:8px">${activos.length} ingredientes con stock · Actualizado al ${new Date().toLocaleString('es-CL')}</div>`;
 
   wrap.innerHTML = html;
+}
+
+// ── STOCK INICIAL ────────────────────────────────────────────────────────────
+const NEGATIVOS = ["PAPAS DUQUESAS","MERLUZA APANADA CONG","CHOCLO GRANO","ACELGA C/RESOLUCION","BETARRAGA ENTERA P.E.","REPOLLO MORADO P.E.","ZAPALLO CUBO","ESPINACA P.E.","COUS COUS","MERENGUE","CEBOLLA CUBO","BERRO HIDROPONICO","RUCULA P.E.","AVENA CON LECHE NORMAL","HARINA SIN POLVO","LECHUGA COSTINA P.E.","LECHE POLVO 18%","LECHE EN POLVO","PALMITO CONSERVA","FIDEO LASAÑA","CALDO CONCENTRADO CARNE","JALEA MELON","MERMELADA MORA","QUESO RALLADO","AJO","LONGANIZA","CALDO CONCENTRADO AVE","HUEVOS","OREGANO","ESENCIA VAINILLA","CANELA ENTERA (15GRS)","PIMIENTA BLANCA MOLIDA"];
+
+(function initStockInicial() {
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#1F4E79;color:#fff"><th style="padding:8px;text-align:left">Ingrediente</th><th style="padding:8px;text-align:right;width:90px">Cantidad</th><th style="padding:8px;text-align:center;width:70px">UM</th></tr></thead><tbody>';
+  NEGATIVOS.forEach((ing, i) => {
+    const bg = i % 2 === 0 ? '#fff' : '#f5f5f7';
+    html += `<tr style="background:${bg}">
+      <td style="padding:7px 8px">${ing}</td>
+      <td style="padding:4px 8px"><input type="number" id="si-cant-${i}" value="0" min="0" step="0.001" style="width:80px;text-align:right;font-size:13px;padding:4px;border:1px solid #ddd;border-radius:6px"></td>
+      <td style="padding:4px 8px;text-align:center"><select id="si-um-${i}" style="font-size:12px;width:60px"><option>Kg</option><option>lt</option><option>UN</option></select></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('si-tabla').innerHTML = html;
+})();
+
+async function registrarStockInicial() {
+  const u = document.getElementById('si-usuario').value;
+  if(!u) { alert('Selecciona un usuario.'); return; }
+  const fecha = document.getElementById('si-fecha').value;
+  if(!fecha) { alert('Selecciona una fecha.'); return; }
+
+  let registrados = 0;
+  for(let i = 0; i < NEGATIVOS.length; i++) {
+    const cant = parseFloat(document.getElementById(`si-cant-${i}`).value) || 0;
+    if(cant > 0) {
+      const um = document.getElementById(`si-um-${i}`).value;
+      await gsPost('Movimientos', [fecha, 'STOCK INICIAL', NEGATIVOS[i], cant.toFixed(3), um, '', '', 'INV-INICIAL', '', u, 'Inventario inicial complementario']);
+      registrados++;
+    }
+  }
+
+  const ok = document.getElementById('si-ok');
+  ok.style.display = 'block';
+  ok.textContent = registrados > 0
+    ? `✓ ${registrados} productos registrados en Google Sheets.`
+    : '✓ Sin cambios — todos en 0.';
+  
+  setTimeout(() => { ok.style.display = 'none'; }, 3000);
 }
 
 function showTab(id, el) {
