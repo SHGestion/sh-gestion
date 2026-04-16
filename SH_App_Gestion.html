@@ -78,7 +78,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
-  <button class="tab" onclick="showTab('stockinicial',this)">Stock inicial</button>
+  <button class="tab" id="tab-btn-stockinicial" style="display:none" onclick="showTab('stockinicial',this)">Stock inicial</button>
 </div>
 
 <!-- ═══ TAB 1: FACTURAS ═══ -->
@@ -1012,6 +1012,10 @@ async function cargarStock() {
   const negativos = Object.values(stock)
     .filter(s => s.cantidad < -0.001)
     .sort((a,b) => a.cantidad - b.cantidad);
+
+  // Mostrar/ocultar pestaña Stock inicial
+  const btnSI = document.getElementById('tab-btn-stockinicial');
+  if(btnSI) btnSI.style.display = negativos.length > 0 ? '' : 'none';
 
   const activos = Object.values(stock)
     .filter(s => s.cantidad > 0.001)
