@@ -57,6 +57,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 .empty-state{text-align:center;padding:2rem;color:#888;font-size:14px}
 @media(max-width:500px){.g3,.g4{grid-template-columns:1fr 1fr}}
 </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -79,6 +80,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
   <button class="tab" id="tab-btn-stockinicial" style="display:none" onclick="showTab('stockinicial',this)">Stock inicial</button>
+  <button class="tab" onclick="showTab('marcaciones',this)">Marcaciones</button>
 </div>
 
 <!-- ═══ TAB 1: FACTURAS ═══ -->
@@ -240,6 +242,31 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </div>
 
 <!-- ═══ TAB 3: MOVIMIENTOS ═══ -->
+<div class="panel" id="tab-marcaciones">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong>Cargar marcaciones</strong>
+      <span style="font-size:12px;color:#888">Archivo Excel del cliente</span>
+    </div>
+    <div style="font-size:12px;color:#37474f;background:#eceff1;padding:8px 12px;border-radius:8px;margin-bottom:14px">
+      Sube el archivo de marcaciones exportado desde el sistema del cliente. Las raciones de Almuerzo y Cena se suman como total diario.
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <span class="lbl">Archivo Excel de marcaciones (.xlsx)</span>
+      <input type="file" id="marc-file" accept=".xlsx" style="margin-top:6px;font-size:13px">
+    </div>
+    <button class="btn btnp" onclick="procesarMarcaciones()" style="width:100%">Procesar y subir a Sheets →</button>
+    <div id="marc-preview" style="margin-top:14px;display:none"></div>
+    <div id="marc-ok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+    <div id="marc-error" style="display:none;margin-top:10px;padding:12px;background:#ffebee;border-radius:10px;color:#b71c1c;font-weight:600"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <strong style="font-size:13px">Raciones registradas</strong>
+    <div id="marc-tabla" style="margin-top:10px;font-size:13px;color:#888">Carga un archivo para ver el resumen.</div>
+    <button class="btn" style="margin-top:10px;font-size:12px;padding:5px 10px" onclick="cargarRaciones()">↻ Ver historial</button>
+  </div>
+</div>
+
 <div class="panel" id="tab-stockinicial">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1136,6 +1163,114 @@ async function registrarStockInicial() {
     : '✓ Sin cambios — todos en 0.';
   
   setTimeout(() => { ok.style.display = 'none'; }, 3000);
+}
+
+// ── MARCACIONES ──────────────────────────────────────────────────────────────
+async function procesarMarcaciones() {
+  const fileInput = document.getElementById('marc-file');
+  const preview = document.getElementById('marc-preview');
+  const ok = document.getElementById('marc-ok');
+  const err = document.getElementById('marc-error');
+  ok.style.display = 'none';
+  err.style.display = 'none';
+  preview.style.display = 'none';
+
+  if(!fileInput.files.length) { 
+    err.style.display = 'block';
+    err.textContent = 'Selecciona un archivo Excel primero.';
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const data = await file.arrayBuffer();
+
+  // Leer xlsx con SheetJS
+  const wb = XLSX.read(data, { type: 'array', cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+
+  // Buscar fila de encabezados
+  let headerRow = -1;
+  for(let i = 0; i < rows.length; i++) {
+    if(rows[i] && rows[i].includes('Fecha') && rows[i].includes('Servicio')) {
+      headerRow = i;
+      break;
+    }
+  }
+  if(headerRow < 0) {
+    err.style.display = 'block';
+    err.textContent = 'No se encontró la estructura esperada. Verifica que sea el archivo correcto.';
+    return;
+  }
+
+  const headers = rows[headerRow];
+  const colFecha = headers.indexOf('Fecha');
+  const colServicio = headers.indexOf('Servicio');
+
+  // Agrupar raciones por fecha (Almuerzo + Cena sumados)
+  const raciones = {};
+  for(let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if(!row || !row[colFecha]) continue;
+    
+    let fecha = row[colFecha];
+    // Normalizar fecha a yyyy-mm-dd
+    if(typeof fecha === 'string' && fecha.includes('/')) {
+      const parts = fecha.split(' ')[0].split('/');
+      if(parts.length === 3) fecha = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+    } else if(typeof fecha === 'string') {
+      fecha = fecha.split(' ')[0].substring(0, 10);
+    }
+    
+    if(!raciones[fecha]) raciones[fecha] = 0;
+    raciones[fecha]++;
+  }
+
+  const fechas = Object.keys(raciones).sort();
+  if(!fechas.length) {
+    err.style.display = 'block';
+    err.textContent = 'No se encontraron datos de marcaciones en el archivo.';
+    return;
+  }
+
+  // Mostrar preview
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#1F4E79;color:#fff"><th style="padding:8px;text-align:left">Fecha</th><th style="padding:8px;text-align:right">Raciones</th></tr></thead><tbody>';
+  fechas.forEach((f, i) => {
+    const bg = i % 2 === 0 ? '#fff' : '#f5f5f7';
+    html += `<tr style="background:${bg}"><td style="padding:6px 8px">${f}</td><td style="padding:6px 8px;text-align:right;font-weight:600">${raciones[f]}</td></tr>`;
+  });
+  const total = fechas.reduce((s, f) => s + raciones[f], 0);
+  html += `<tr style="background:#e3f2fd;font-weight:700"><td style="padding:6px 8px">TOTAL (${fechas.length} días)</td><td style="padding:6px 8px;text-align:right">${total}</td></tr>`;
+  html += '</tbody></table>';
+  preview.innerHTML = html;
+  preview.style.display = 'block';
+
+  // Subir a Sheets (hoja Raciones_Diarias)
+  let subidos = 0;
+  for(const fecha of fechas) {
+    await gsPost('Raciones_Diarias', [fecha, raciones[fecha], 'Almuerzo+Cena', file.name]);
+    subidos++;
+  }
+
+  ok.style.display = 'block';
+  ok.textContent = `✓ ${subidos} días registrados en Google Sheets (${total} raciones totales).`;
+}
+
+async function cargarRaciones() {
+  const tabla = document.getElementById('marc-tabla');
+  tabla.innerHTML = '<span class="spin"></span> Cargando...';
+  const rows = await gsGet('Raciones_Diarias');
+  if(!rows || rows.length < 2) {
+    tabla.innerHTML = '<span style="color:#888">Sin registros aún.</span>';
+    return;
+  }
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#1F4E79;color:#fff"><th style="padding:6px 8px;text-align:left">Fecha</th><th style="padding:6px 8px;text-align:right">Raciones</th><th style="padding:6px 8px;text-align:left">Fuente</th></tr></thead><tbody>';
+  rows.slice(1).forEach((r, i) => {
+    const bg = i % 2 === 0 ? '#fff' : '#f5f5f7';
+    html += `<tr style="background:${bg}"><td style="padding:5px 8px">${r[0]||''}</td><td style="padding:5px 8px;text-align:right;font-weight:600">${r[1]||''}</td><td style="padding:5px 8px;font-size:11px;color:#888">${r[3]||''}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  tabla.innerHTML = html;
 }
 
 function showTab(id, el) {
