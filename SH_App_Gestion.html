@@ -127,7 +127,8 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="showTab('facturas',this)">Facturas</button>
+  <button class="tab active" onclick="showTab('dashboard',this);cargarDashboard()">Dashboard</button>
+  <button class="tab" onclick="showTab('facturas',this)">Facturas</button>
   <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
@@ -135,8 +136,67 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('marcaciones',this)">Consumos</button>
 </div>
 
+<!-- ═══ TAB 0: DASHBOARD ═══ -->
+<div class="panel active" id="tab-dashboard">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <strong>Dashboard</strong>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="dash-tramo-auto" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #ddd">
+          <option value="auto" selected>Tramo automático</option>
+          <option value="7641">Tramo 1 — $7.641</option>
+          <option value="8784">Tramo 2 — $8.784</option>
+          <option value="9884">Tramo 3 — $9.884</option>
+        </select>
+        <button class="btn" style="font-size:12px;padding:5px 10px" onclick="cargarDashboard()">↻ Actualizar</button>
+      </div>
+    </div>
+    <div id="dash-tramo-label" style="font-size:12px;color:#888;margin-bottom:12px"></div>
+
+    <!-- Métricas principales -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+      <div style="background:#e3f2fd;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#1565c0;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Raciones hoy</div>
+        <div id="dash-rac-dia" style="font-size:24px;font-weight:700;color:#1565c0;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">consumidores</div>
+      </div>
+      <div style="background:#e8f5e9;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#2e7d32;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Venta hoy</div>
+        <div id="dash-vta-dia" style="font-size:20px;font-weight:700;color:#2e7d32;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">estimada</div>
+      </div>
+      <div style="background:#fff3e0;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#e65100;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Food Cost hoy</div>
+        <div id="dash-fc-dia" style="font-size:24px;font-weight:700;color:#e65100;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">costo / venta</div>
+      </div>
+    </div>
+
+    <!-- Tabla resumen períodos -->
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#1F4E79;color:#fff">
+          <th style="padding:8px;text-align:left">Período</th>
+          <th style="padding:8px;text-align:right">Raciones</th>
+          <th style="padding:8px;text-align:right">Venta</th>
+          <th style="padding:8px;text-align:right">Costo MP</th>
+          <th style="padding:8px;text-align:right">Food Cost</th>
+          <th style="padding:8px;text-align:right">$/Ración</th>
+        </tr>
+      </thead>
+      <tbody id="dash-tabla"></tbody>
+    </table>
+  </div>
+
+  <!-- Gráfico tendencia food cost -->
+  <div class="card" style="margin-top:12px">
+    <strong style="font-size:13px">Tendencia diaria — Food Cost %</strong>
+    <div id="dash-chart" style="margin-top:10px;overflow-x:auto"></div>
+  </div>
+</div>
+
 <!-- ═══ TAB 1: FACTURAS ═══ -->
-<div class="panel active" id="tab-facturas">
+<div class="panel" id="tab-facturas">
   <div id="fs1">
     <div class="card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
@@ -546,6 +606,7 @@ async function doLogin() {
     });
   }
   await init();
+  cargarDashboard();
 }
 
 function doLogout() {
@@ -1516,6 +1577,179 @@ async function calcularIndicadores() {
       <div style="font-size:28px;font-weight:700;color:#e65100;margin:4px 0">${fmt(ventaProyectada)}</div>
       <div style="font-size:11px;color:#555">Prom. L-V: ${fmtN(promedioLV)} rac/día · Prom. S-D: ${fmtN(promedioFS)} rac/día · ${ultimoDia - hoy.getDate()} días restantes</div>
     </div>`;
+}
+
+// ── DASHBOARD ────────────────────────────────────────────────────────────────
+const TRAMOS = [{desde:1700,hasta:Infinity,precio:7641},{desde:1400,hasta:1699,precio:8784},{desde:1200,hasta:1399,precio:9884}];
+
+function getPrecioTramo(promedioRaciones) {
+  for(const t of TRAMOS) {
+    if(promedioRaciones >= t.desde) return t.precio;
+  }
+  return TRAMOS[TRAMOS.length-1].precio;
+}
+
+function getTramoNombre(precio) {
+  if(precio===7641) return 'Tramo 1 (≥1700 rac/mes) — $7.641/ración';
+  if(precio===8784) return 'Tramo 2 (1400-1699 rac/mes) — $8.784/ración';
+  return 'Tramo 3 (1200-1399 rac/mes) — $9.884/ración';
+}
+
+async function cargarDashboard() {
+  const dashTabla = document.getElementById('dash-tabla');
+  dashTabla.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#888;text-align:center"><span class="spin"></span> Cargando...</td></tr>';
+  document.getElementById('dash-chart').innerHTML = '';
+
+  const [movRows, racRows] = await Promise.all([
+    gsGet('Movimientos'),
+    gsGet('Raciones_Diarias')
+  ]);
+
+  const hoy = new Date();
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const todayStr = hoy.toISOString().substring(0,10);
+
+  // Determinar precio tramo
+  let precioTramo;
+  const tramoSel = document.getElementById('dash-tramo-auto').value;
+  if(tramoSel !== 'auto') {
+    precioTramo = parseFloat(tramoSel);
+  } else {
+    // Calcular promedio raciones del mes para determinar tramo
+    let totalRacMes = 0, diasMes = 0;
+    if(racRows && racRows.length > 1) {
+      racRows.slice(1).forEach(r => {
+        const f = String(r[0]).substring(0,7);
+        if(f === mesActual) { totalRacMes += parseInt(r[1])||0; diasMes++; }
+      });
+    }
+    const promedioMensual = totalRacMes; // total del mes (no promedio diario)
+    precioTramo = getPrecioTramo(promedioMensual);
+  }
+  document.getElementById('dash-tramo-label').textContent = '▸ ' + getTramoNombre(precioTramo);
+
+  // Raciones por fecha
+  const racionesPorFecha = {};
+  if(racRows && racRows.length > 1) {
+    racRows.slice(1).forEach(r => {
+      const f = String(r[0]).substring(0,10);
+      racionesPorFecha[f] = (racionesPorFecha[f]||0) + (parseInt(r[1])||0);
+    });
+  }
+
+  // Costos por fecha (SALIDA REAL valorizada)
+  const costosPorFecha = {};
+  if(movRows && movRows.length > 1) {
+    movRows.slice(1).forEach(r => {
+      const tipo = (r[1]||'').toString().trim().toUpperCase();
+      if(tipo !== 'SALIDA REAL') return;
+      const f = String(r[0]).substring(0,10);
+      const cant = parseFloat(r[3])||0;
+      const precio = parseFloat(r[5])||0;
+      const total = parseFloat(r[6])||0;
+      const costo = total > 0 ? total : cant * precio;
+      costosPorFecha[f] = (costosPorFecha[f]||0) + costo;
+    });
+  }
+
+  // Calcular períodos
+  const inicioSemana = new Date(hoy);
+  inicioSemana.setDate(hoy.getDate() - hoy.getDay() + (hoy.getDay()===0?-6:1));
+  const semanaStr = inicioSemana.toISOString().substring(0,10);
+
+  function calcPeriodo(filtroFecha) {
+    let raciones=0, venta=0, costo=0, dias=0;
+    const fechas = Object.keys(racionesPorFecha).filter(filtroFecha);
+    fechas.forEach(f => {
+      raciones += racionesPorFecha[f]||0;
+      venta += (racionesPorFecha[f]||0) * precioTramo;
+      costo += costosPorFecha[f]||0;
+      if(racionesPorFecha[f]>0) dias++;
+    });
+    const fc = venta>0 ? (costo/venta*100) : 0;
+    const xrac = raciones>0 ? costo/raciones : 0;
+    return {raciones, venta, costo, fc, xrac, dias};
+  }
+
+  const pDia  = calcPeriodo(f => f === todayStr);
+  const pSem  = calcPeriodo(f => f >= semanaStr && f <= todayStr);
+  const pMes  = calcPeriodo(f => f.substring(0,7) === mesActual);
+
+  // Actualizar métricas principales
+  const fmt  = v => '$' + Math.round(v).toLocaleString('es-CL');
+  const fmtN = v => Math.round(v).toLocaleString('es-CL');
+  const fmtP = v => v > 0 ? v.toFixed(1)+'%' : '—';
+
+  document.getElementById('dash-rac-dia').textContent = fmtN(pDia.raciones) || '—';
+  document.getElementById('dash-vta-dia').textContent = pDia.venta>0 ? fmt(pDia.venta) : '—';
+  document.getElementById('dash-fc-dia').textContent = fmtP(pDia.fc);
+
+  // Colorear food cost
+  const fcEl = document.getElementById('dash-fc-dia');
+  if(pDia.fc>0) fcEl.style.color = pDia.fc<30?'#2e7d32':pDia.fc<40?'#e65100':'#c62828';
+
+  // Tabla períodos
+  const filas = [
+    {label:'Hoy', d:pDia},
+    {label:'Esta semana', d:pSem},
+    {label:'Este mes', d:pMes},
+  ];
+  dashTabla.innerHTML = filas.map((f,i) => {
+    const bg = i%2===0?'#fff':'#f5f5f7';
+    const fcColor = f.d.fc>40?'#c62828':f.d.fc>30?'#e65100':'#2e7d32';
+    return `<tr style="background:${bg}">
+      <td style="padding:8px;font-weight:600">${f.label}</td>
+      <td style="padding:8px;text-align:right">${fmtN(f.d.raciones)}</td>
+      <td style="padding:8px;text-align:right">${f.d.venta>0?fmt(f.d.venta):'—'}</td>
+      <td style="padding:8px;text-align:right">${f.d.costo>0?fmt(f.d.costo):'—'}</td>
+      <td style="padding:8px;text-align:right;font-weight:700;color:${fcColor}">${fmtP(f.d.fc)}</td>
+      <td style="padding:8px;text-align:right">${f.d.xrac>0?fmt(f.d.xrac):'—'}</td>
+    </tr>`;
+  }).join('');
+
+  // Gráfico tendencia (barras SVG simples)
+  const fechasMes = Object.keys(racionesPorFecha)
+    .filter(f => f.substring(0,7)===mesActual)
+    .sort();
+  
+  if(fechasMes.length > 0) {
+    const datos = fechasMes.map(f => {
+      const rac = racionesPorFecha[f]||0;
+      const vta = rac * precioTramo;
+      const cost = costosPorFecha[f]||0;
+      const fc = vta>0 ? cost/vta*100 : 0;
+      return {f, fc};
+    });
+    const maxFC = Math.max(...datos.map(d=>d.fc), 50);
+    const W = Math.max(datos.length * 28, 280);
+    const H = 120;
+    let svg = `<svg viewBox="0 0 ${W+40} ${H+40}" style="width:100%;min-width:${W+40}px;height:${H+50}px">`;
+    // Líneas de referencia
+    [0,25,50].forEach(pct => {
+      const y = H - (pct/maxFC)*H + 10;
+      svg += `<line x1="35" y1="${y}" x2="${W+35}" y2="${y}" stroke="#eee" stroke-width="1"/>`;
+      svg += `<text x="30" y="${y+4}" text-anchor="end" font-size="9" fill="#aaa">${pct}%</text>`;
+    });
+    // Línea 35% objetivo
+    const yObj = H - (35/maxFC)*H + 10;
+    svg += `<line x1="35" y1="${yObj}" x2="${W+35}" y2="${yObj}" stroke="#e65100" stroke-width="1" stroke-dasharray="4,3"/>`;
+    svg += `<text x="${W+37}" y="${yObj+4}" font-size="9" fill="#e65100">35%</text>`;
+    // Barras
+    datos.forEach((d,i) => {
+      const x = 40 + i*28;
+      const barH = d.fc>0 ? (d.fc/maxFC)*H : 2;
+      const y = H - barH + 10;
+      const color = d.fc>40?'#ef9a9a':d.fc>30?'#ffcc80':'#a5d6a7';
+      svg += `<rect x="${x}" y="${y}" width="20" height="${barH}" rx="3" fill="${color}"/>`;
+      if(d.fc>0) svg += `<text x="${x+10}" y="${y-3}" text-anchor="middle" font-size="8" fill="#555">${d.fc.toFixed(0)}%</text>`;
+      const dia = d.f.substring(8);
+      svg += `<text x="${x+10}" y="${H+24}" text-anchor="middle" font-size="8" fill="#888">${dia}</text>`;
+    });
+    svg += '</svg>';
+    document.getElementById('dash-chart').innerHTML = svg;
+  } else {
+    document.getElementById('dash-chart').innerHTML = '<div style="color:#888;font-size:13px;padding:8px">Sin datos del mes actual.</div>';
+  }
 }
 
 function showTab(id, el) {
