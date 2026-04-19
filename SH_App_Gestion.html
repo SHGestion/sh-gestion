@@ -784,7 +784,17 @@ async function regConsumo() {
   const todo = [...ingredientesDia, ...filasExtra];
   const conReal = todo.filter(r => r.real !== '' && parseFloat(r.real) >= 0);
 
+  const btn = document.querySelector('#tab-consumo .btn.btnb');
+  const cok = document.getElementById('cok');
+  if(btn) { btn.disabled = true; }
+  cok.style.display = 'block';
+  cok.style.background = '#e3f2fd';
+  cok.style.color = '#1565c0';
+
+  let registrados = 0;
   for(const row of conReal) {
+    registrados++;
+    cok.textContent = `Registrando ${registrados}/${conReal.length}... (${row.ing})`;
     const real = parseFloat(row.real);
     await gsPost('Movimientos', [fecha, 'SALIDA REAL', row.ing,
       real.toFixed(3), 'Kg', '', '', 'PROD-REAL', 'Cocina', u,
@@ -794,10 +804,12 @@ async function regConsumo() {
       (real - row.plan).toFixed(3), u, obs||'']);
   }
 
-  document.getElementById('cok').style.display = 'block';
-  document.getElementById('cok').textContent = conReal.length > 0
-    ? `✓ ${conReal.length} consumos registrados en Google Sheets.`
+  cok.style.background = '#e8f5e9';
+  cok.style.color = '#1b5e20';
+  cok.textContent = conReal.length > 0
+    ? `✓ ${conReal.length} consumos registrados correctamente.`
     : '✓ Sin consumos ingresados.';
+  if(btn) { btn.disabled = false; }
   await cargarMovimientos();
 }
 
