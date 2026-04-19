@@ -88,17 +88,42 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </head>
 <body>
 
+<!-- PANTALLA LOGIN -->
+<div id="login-screen" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f7;padding:24px">
+  <div style="background:#fff;border-radius:16px;padding:32px 28px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="background:#1F4E79;color:#fff;border-radius:12px;display:inline-block;padding:10px 18px;margin-bottom:12px">
+        <div style="font-size:16px;font-weight:700">SH Gestión y Servicios SpA</div>
+      </div>
+      <div style="font-size:13px;color:#888">Sistema de gestión de cocina</div>
+    </div>
+    <div class="field">
+      <span class="lbl">Usuario</span>
+      <select id="login-usuario" style="width:100%">
+        <option value="">— seleccionar —</option>
+      </select>
+    </div>
+    <div class="field">
+      <span class="lbl">Contraseña</span>
+      <input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div id="login-error" style="display:none;color:#b71c1c;font-size:13px;margin-bottom:10px;background:#ffebee;padding:8px 12px;border-radius:8px"></div>
+    <button class="btn btnp" style="width:100%;margin-top:4px" onclick="doLogin()">Ingresar →</button>
+  </div>
+</div>
+
+<!-- APP PRINCIPAL -->
+<div id="app-main" style="display:none">
+
 <div class="header">
   <div>
     <h1>SH Gestión y Servicios SpA</h1>
     <div style="font-size:11px;opacity:.8" id="semana-label">Cargando...</div>
   </div>
-  <select id="usuario">
-    <option value="">— usuario —</option>
-    <option>Marcelo</option>
-    <option>Gisela</option>
-    <option>Mari</option>
-  </select>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span id="header-usuario" style="font-size:13px;color:#fff;opacity:.9"></span>
+    <button onclick="doLogout()" style="font-size:11px;padding:4px 10px;border-radius:8px;border:none;background:rgba(255,255,255,0.2);color:#fff;cursor:pointer">Salir</button>
+  </div>
 </div>
 
 <div class="tabs">
@@ -476,6 +501,63 @@ function getPrecioSistema(mapeo) {
 }
 
 // ── INICIALIZACIÓN ───────────────────────────────────────────────────────────
+// ── LOGIN ─────────────────────────────────────────────────────────────────────
+let usuarioActual = null;
+let rolActual = null;
+let usuariosDB = {};
+
+async function initLogin() {
+  const rows = await gsGet('Usuarios');
+  const sel = document.getElementById('login-usuario');
+  if(rows && rows.length > 1) {
+    rows.slice(1).forEach(r => {
+      const u = (r[0]||'').toString().trim();
+      const p = (r[1]||'').toString().trim();
+      const rol = (r[2]||'admin').toString().trim();
+      if(u) {
+        usuariosDB[u] = { pass: p, rol: rol };
+        const opt = document.createElement('option');
+        opt.value = u; opt.textContent = u;
+        sel.appendChild(opt);
+      }
+    });
+  }
+}
+
+async function doLogin() {
+  const u = document.getElementById('login-usuario').value;
+  const p = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if(!u) { errEl.style.display='block'; errEl.textContent='Selecciona un usuario.'; return; }
+  if(!p) { errEl.style.display='block'; errEl.textContent='Ingresa tu contraseña.'; return; }
+  if(!usuariosDB[u]) { errEl.style.display='block'; errEl.textContent='Usuario no encontrado.'; return; }
+  if(usuariosDB[u].pass !== p) { errEl.style.display='block'; errEl.textContent='Contraseña incorrecta.'; return; }
+  usuarioActual = u;
+  rolActual = usuariosDB[u].rol;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-main').style.display = 'block';
+  document.getElementById('header-usuario').textContent = u;
+  // Ocultar pestañas según rol
+  if(rolActual !== 'admin') {
+    document.querySelectorAll('.tab').forEach(btn => {
+      const oc = btn.getAttribute('onclick') || '';
+      if(oc.includes('marcaciones')) btn.style.display = 'none';
+    });
+  }
+  await init();
+}
+
+function doLogout() {
+  usuarioActual = null; rolActual = null;
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-usuario').value = '';
+  document.getElementById('app-main').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+function getUsuario() { return usuarioActual || ''; }
+
 async function init() {
   // Maestro precios
   const rows = await gsGet('Maestro_Precios');
@@ -633,7 +715,7 @@ function addFilaC() {
 }
 
 async function regConsumo() {
-  const u = document.getElementById('usuario').value;
+  const u = getUsuario();
   if(!u) { alert('Selecciona un usuario.'); return; }
   const fecha = document.getElementById('cfecha').value;
   if(!fecha) { alert('Selecciona una fecha.'); return; }
@@ -1054,7 +1136,7 @@ async function cargarMovimientos() {
 }
 
 async function regAjuste() {
-  const u=document.getElementById('usuario').value;
+  const u=getUsuario();
   const ing=document.getElementById('ajing').value;
   const cant=document.getElementById('ajcant').value;
   const tipo=document.getElementById('ajtipo').value;
@@ -1443,7 +1525,8 @@ function showTab(id, el) {
   el.classList.add('active');
 }
 
-init();
+initLogin();
 </script>
+</div><!-- /app-main -->
 </body>
 </html>
