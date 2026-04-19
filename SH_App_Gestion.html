@@ -58,6 +58,33 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 @media(max-width:500px){.g3,.g4{grid-template-columns:1fr 1fr}}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<meta name="app-version" content="1">
+<script>
+// Auto-reload si hay nueva versión en Sheets
+(async function checkVersion() {
+  try {
+    const API = 'https://sh-claude-proxy.msothersm.workers.dev';
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({accion: 'get', hoja: 'Config'})
+    });
+    const data = await r.json();
+    if(!data.ok || !data.datos || data.datos.length < 2) return;
+    // Buscar fila con clave "version"
+    const fila = data.datos.slice(1).find(r => (r[0]||'').toString().trim().toLowerCase() === 'version');
+    if(!fila) return;
+    const versionRemota = (fila[1]||'').toString().trim();
+    const versionLocal = document.querySelector('meta[name="app-version"]').content;
+    if(versionRemota && versionRemota !== versionLocal) {
+      // Nueva versión disponible — recargar limpiando caché
+      if(confirm(`Nueva versión disponible (v${versionRemota}). ¿Actualizar ahora?`)) {
+        window.location.href = window.location.href.split('?')[0] + '?v=' + versionRemota + '&t=' + Date.now();
+      }
+    }
+  } catch(e) {}
+})();
+</script>
 </head>
 <body>
 
