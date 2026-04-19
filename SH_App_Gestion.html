@@ -80,7 +80,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
   <button class="tab" id="tab-btn-stockinicial" style="display:none" onclick="showTab('stockinicial',this)">Stock inicial</button>
-  <button class="tab" onclick="showTab('marcaciones',this)">Marcaciones</button>
+  <button class="tab" onclick="showTab('marcaciones',this)">Consumos</button>
 </div>
 
 <!-- ═══ TAB 1: FACTURAS ═══ -->
@@ -264,6 +264,23 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
     <strong style="font-size:13px">Raciones registradas</strong>
     <div id="marc-tabla" style="margin-top:10px;font-size:13px;color:#888">Carga un archivo para ver el resumen.</div>
     <button class="btn" style="margin-top:10px;font-size:12px;padding:5px 10px" onclick="cargarRaciones()">↻ Ver historial</button>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <strong style="font-size:13px">Indicadores de venta</strong>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="ind-tramo" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #ddd">
+          <option value="7641">Tramo 1 — $7.641</option>
+          <option value="8784">Tramo 2 — $8.784</option>
+          <option value="9884" selected>Tramo 3 — $9.884</option>
+        </select>
+        <button class="btn" style="font-size:12px;padding:5px 10px" onclick="calcularIndicadores()">Calcular</button>
+      </div>
+    </div>
+    <div id="ind-wrap">
+      <div style="color:#888;font-size:13px">Selecciona el tramo y presiona Calcular.</div>
+    </div>
   </div>
 </div>
 
@@ -1289,6 +1306,82 @@ async function cargarRaciones() {
   });
   html += '</tbody></table>';
   tabla.innerHTML = html;
+}
+
+// ── INDICADORES CONSUMO ──────────────────────────────────────────────────────
+async function calcularIndicadores() {
+  const wrap = document.getElementById('ind-wrap');
+  wrap.innerHTML = '<span class="spin"></span> Calculando...';
+  const precio = parseFloat(document.getElementById('ind-tramo').value);
+
+  const rows = await gsGet('Raciones_Diarias');
+  if(!rows || rows.length < 2) {
+    wrap.innerHTML = '<div style="color:#888;font-size:13px">Sin datos de raciones registradas.</div>';
+    return;
+  }
+
+  // Agrupar por mes actual
+  const hoy = new Date();
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  
+  let totalRaciones = 0;
+  let totalVenta = 0;
+  const porFecha = {};
+  const lv = [], fs = []; // lunes-viernes, fin de semana
+
+  rows.slice(1).forEach(r => {
+    const fecha = String(r[0]).substring(0,10);
+    const raciones = parseInt(r[1]) || 0;
+    if(!fecha || !raciones) return;
+    
+    const mes = fecha.substring(0,7);
+    if(mes !== mesActual) return;
+
+    porFecha[fecha] = (porFecha[fecha] || 0) + raciones;
+  });
+
+  Object.entries(porFecha).forEach(([fecha, rac]) => {
+    const dow = new Date(fecha + 'T12:00:00').getDay(); // 0=dom,6=sab
+    totalRaciones += rac;
+    totalVenta += rac * precio;
+    if(dow === 0 || dow === 6) fs.push(rac);
+    else lv.push(rac);
+  });
+
+  // Promedios
+  const promedioLV = lv.length > 0 ? lv.reduce((a,b)=>a+b,0)/lv.length : 0;
+  const promedioFS = fs.length > 0 ? fs.reduce((a,b)=>a+b,0)/fs.length : promedioLV * 0.3;
+
+  // Días restantes del mes
+  const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  let racProyectadas = totalRaciones;
+  for(let d = hoy.getDate()+1; d <= ultimoDia; d++) {
+    const dow = new Date(hoy.getFullYear(), hoy.getMonth(), d).getDay();
+    racProyectadas += (dow === 0 || dow === 6) ? promedioFS : promedioLV;
+  }
+  const ventaProyectada = racProyectadas * precio;
+
+  const fmt = v => '$' + Math.round(v).toLocaleString('es-CL');
+  const fmtN = v => Math.round(v).toLocaleString('es-CL');
+
+  wrap.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div style="background:#e3f2fd;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:#1565c0;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Raciones del mes</div>
+        <div style="font-size:26px;font-weight:700;color:#1565c0;margin:4px 0">${fmtN(totalRaciones)}</div>
+        <div style="font-size:11px;color:#555">${Object.keys(porFecha).length} días registrados</div>
+      </div>
+      <div style="background:#e8f5e9;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:#2e7d32;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Venta valorizada</div>
+        <div style="font-size:22px;font-weight:700;color:#2e7d32;margin:4px 0">${fmt(totalVenta)}</div>
+        <div style="font-size:11px;color:#555">al precio del tramo</div>
+      </div>
+    </div>
+    <div style="background:#fff3e0;border-radius:10px;padding:12px;text-align:center">
+      <div style="font-size:11px;color:#e65100;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Proyección venta mes completo</div>
+      <div style="font-size:28px;font-weight:700;color:#e65100;margin:4px 0">${fmt(ventaProyectada)}</div>
+      <div style="font-size:11px;color:#555">Prom. L-V: ${fmtN(promedioLV)} rac/día · Prom. S-D: ${fmtN(promedioFS)} rac/día · ${ultimoDia - hoy.getDate()} días restantes</div>
+    </div>`;
 }
 
 function showTab(id, el) {
