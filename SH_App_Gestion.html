@@ -926,15 +926,29 @@ function mapF(i, v) {
       itemsF[i].mapeo=nombre;
       itemsF[i].conf=1;
       if(!maestroPrecios[nombre]) {
-      maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
-      // Guardar en Google Sheets
-      const precio_nuevo = prompt('Precio por kg/lt de ' + nombre + ' (deja en blanco si no sabes):');
-      gsPost('Maestro_Precios', [nombre, 'kg', parseFloat(precio_nuevo)||0, 'Ingresado desde app']);
-    }
+        maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
+        const precio_nuevo = prompt('Precio por kg/lt de ' + nombre + ' (deja en blanco si no sabes):');
+        gsPost('Maestro_Precios', [nombre, 'kg', parseFloat(precio_nuevo)||0, 'Ingresado desde app']);
+      }
+      // Guardar mapeo
+      const descKey = itemsF[i].desc.trim().toUpperCase();
+      if(!mapeosFacturas[descKey]) {
+        mapeosFacturas[descKey] = nombre;
+        gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), nombre, new Date().toISOString().substring(0,10)]);
+      }
     }
   }
   else if(v===''){itemsF[i].mapeo='';itemsF[i].conf=0;}
-  else{itemsF[i].mapeo=v;itemsF[i].conf=2;}
+  else {
+    itemsF[i].mapeo=v;
+    itemsF[i].conf=2;
+    // Guardar mapeo cuando usuario selecciona manualmente
+    const descKey = itemsF[i].desc.trim().toUpperCase();
+    if(mapeosFacturas[descKey] !== v) {
+      mapeosFacturas[descKey] = v;
+      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), v, new Date().toISOString().substring(0,10)]);
+    }
+  }
   renderTablaF();
 }
 
