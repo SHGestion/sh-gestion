@@ -967,45 +967,56 @@ function fGo(n) {
 }
 
 async function registrarFactura() {
-  const u = document.getElementById('usuario').value;
+  const u = getUsuario();
   if(!u){alert('Selecciona un usuario.');return;}
-  document.getElementById('btnreg').disabled = true;
-  document.getElementById('btnreg').textContent = 'Registrando...';
-  const fecha = document.getElementById('ffecha').value;
-  const prov = document.getElementById('fprov').value;
-  const nfact = document.getElementById('fnum').value;
-  const obs = document.getElementById('fobs').value;
-  for(const it of itemsF){
-    const factor = getKgFactor(it.desc, it.umEdit||it.um);
-    const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
-    const pxkg = (it.umEdit==='Kg'||it.um==='Kg')?it.punit*1.24:it.punit*1.19/factor;
-    await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
+  const btn = document.getElementById('btnreg');
+  btn.disabled = true;
+  btn.textContent = 'Registrando...';
+  try {
+    const fecha = document.getElementById('ffecha').value;
+    const prov = document.getElementById('fprov').value;
+    const nfact = document.getElementById('fnum').value;
+    const obs = document.getElementById('fobs').value;
+    let registrados = 0;
+    for(const it of itemsF){
+      const factor = getKgFactor(it.desc, it.umEdit||it.um);
+      const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
+      const pxkg = (it.umEdit==='Kg'||it.um==='Kg')?it.punit*1.24:it.punit*1.19/factor;
+      btn.textContent = `Registrando ${++registrados}/${itemsF.length}...`;
+      const r = await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
+      if(!r || !r.ok) throw new Error(`Error registrando ${it.desc}: ${r?.error||'sin respuesta'}`);
+    }
+    const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+    await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+    // Guardar proveedor nuevo si no estaba en la lista
+    if(prov && ![...document.getElementById('fprov-list').options].map(o=>o.value).includes(prov)) {
+      await gsPost('Proveedores_GS', [prov]);
+      const newOpt = document.createElement('option');
+      newOpt.value = prov;
+      document.getElementById('fprov-list').appendChild(newOpt);
+    }
+    const nItems = itemsF.length;
+    document.getElementById('fok').style.display='block';
+    document.getElementById('fok').textContent=`✓ ${nItems} ítems registrados en Google Sheets.`;
+    setTimeout(() => {
+      itemsF = [];
+      tipoF = '';
+      document.getElementById('fok').style.display='none';
+      const fprov = document.getElementById('fprov');
+      const fnum = document.getElementById('fnum');
+      const fobs = document.getElementById('fobs');
+      if(fprov) fprov.value='';
+      if(fnum) fnum.value='';
+      if(fobs) fobs.value='';
+      fGo(1);
+      cargarMovimientos();
+    }, 2500);
+  } catch(e) {
+    console.error('Error registrarFactura:', e);
+    alert('⚠ Error al registrar: ' + e.message + '\n\nTus datos están intactos. Intenta de nuevo.');
+    btn.disabled = false;
+    btn.textContent = 'Registrar entrada →';
   }
-  const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-  await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
-  // Guardar proveedor nuevo si no estaba en la lista
-  if(prov && ![...document.getElementById('fprov-list').options].map(o=>o.value).includes(prov)) {
-    await gsPost('Proveedores_GS', [prov]);
-    const newOpt = document.createElement('option');
-    newOpt.value = prov;
-    document.getElementById('fprov-list').appendChild(newOpt);
-  }
-  const nItems = itemsF.length;
-  document.getElementById('fok').style.display='block';
-  document.getElementById('fok').textContent=`✓ ${nItems} ítems registrados en Google Sheets.`;
-  setTimeout(() => {
-    itemsF = [];
-    tipoF = '';
-    document.getElementById('fok').style.display='none';
-    const fprov = document.getElementById('fprov');
-    const fnum = document.getElementById('fnum');
-    const fobs = document.getElementById('fobs');
-    if(fprov) fprov.value='';
-    if(fnum) fnum.value='';
-    if(fobs) fobs.value='';
-    fGo(1);
-    cargarMovimientos();
-  }, 2500);
 }
 
 // ── MOVIMIENTOS ───────────────────────────────────────────────────────────────
