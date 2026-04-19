@@ -1245,15 +1245,33 @@ async function procesarMarcaciones() {
   preview.innerHTML = html;
   preview.style.display = 'block';
 
-  // Subir a Sheets (hoja Raciones_Diarias)
+  // Leer fechas ya existentes en Raciones_Diarias
+  ok.style.display = 'block';
+  ok.textContent = 'Verificando registros existentes...';
+  const existentes = await gsGet('Raciones_Diarias');
+  const fechasExistentes = new Set();
+  if(existentes && existentes.length > 1) {
+    existentes.slice(1).forEach(r => {
+      if(r[0]) fechasExistentes.add(String(r[0]).substring(0, 10));
+    });
+  }
+
+  // Solo subir fechas nuevas
+  const fechasNuevas = fechas.filter(f => !fechasExistentes.has(f));
+  const fechasOmitidas = fechas.filter(f => fechasExistentes.has(f));
+
   let subidos = 0;
-  for(const fecha of fechas) {
+  for(const fecha of fechasNuevas) {
     await gsPost('Raciones_Diarias', [fecha, raciones[fecha], 'Almuerzo+Cena', file.name]);
     subidos++;
   }
 
-  ok.style.display = 'block';
-  ok.textContent = `✓ ${subidos} días registrados en Google Sheets (${total} raciones totales).`;
+  let msg = '';
+  if(subidos > 0) msg += `✓ ${subidos} días nuevos registrados (${fechasNuevas.reduce((s,f) => s + raciones[f], 0)} raciones). `;
+  if(fechasOmitidas.length > 0) msg += `${fechasOmitidas.length} días ya existían y fueron omitidos.`;
+  if(subidos === 0 && fechasOmitidas.length > 0) msg = `ℹ Todos los días del archivo ya estaban registrados. Sin cambios.`;
+
+  ok.textContent = msg;
 }
 
 async function cargarRaciones() {
