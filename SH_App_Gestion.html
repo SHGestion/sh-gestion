@@ -1649,17 +1649,34 @@ async function cargarDashboard() {
     });
   }
 
-  // Costos por fecha (SALIDA REAL valorizada)
+  // Costos por fecha (SALIDA REAL valorizada con Maestro_Precios)
+  // Cargar Maestro_Precios para valorizar consumos
+  const maestroRows = await gsGet('Maestro_Precios');
+  const preciosMaestro = {};
+  if(maestroRows && maestroRows.length > 1) {
+    maestroRows.slice(1).forEach(r => {
+      const ing = (r[0]||'').toString().trim().toUpperCase();
+      const precio = parseFloat(r[2])||0;
+      if(ing && precio > 0) preciosMaestro[ing] = precio;
+    });
+  }
+
   const costosPorFecha = {};
   if(movRows && movRows.length > 1) {
     movRows.slice(1).forEach(r => {
       const tipo = (r[1]||'').toString().trim().toUpperCase();
       if(tipo !== 'SALIDA REAL') return;
       const f = String(r[0]).substring(0,10);
+      const ing = (r[2]||'').toString().trim().toUpperCase();
       const cant = parseFloat(r[3])||0;
-      const precio = parseFloat(r[5])||0;
+      // Primero usar total registrado, luego precio registrado, luego Maestro
       const total = parseFloat(r[6])||0;
-      const costo = total > 0 ? total : cant * precio;
+      const precioReg = parseFloat(r[5])||0;
+      const precioMaestro = preciosMaestro[ing]||0;
+      let costo = 0;
+      if(total > 0) costo = total;
+      else if(precioReg > 0) costo = cant * precioReg;
+      else if(precioMaestro > 0) costo = cant * precioMaestro;
       costosPorFecha[f] = (costosPorFecha[f]||0) + costo;
     });
   }
