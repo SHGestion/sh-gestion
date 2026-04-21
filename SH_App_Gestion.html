@@ -2019,21 +2019,54 @@ async function cargarInventario() {
 function renderTablaInventario() {
   const tbody = document.getElementById('inv-tbody');
   tbody.innerHTML = '';
+
+  // Orden de familias
+  const ORDEN_FAMILIAS = [
+    'VACUNO','AVE','CERDO','PESCADOS Y MARISCOS',
+    'VERDURAS DE HOJA','TUBÉRCULOS','VERDURAS','CEBOLLAS Y ALIÁCEOS',
+    'TOMATE Y PIMENTÓN','ZANAHORIAS','LEGUMBRES',
+    'PASTAS Y FIDEOS','ARROZ Y CEREALES',
+    'FRUTAS FRESCAS','FRUTAS CONSERVA','LÁCTEOS','SIN FAMILIA'
+  ];
+
+  // Agrupar ingredientes por familia
+  const grupos = {};
+  ORDEN_FAMILIAS.forEach(f => grupos[f] = []);
+
   invIngredientes.forEach((ing, i) => {
-    const tr = document.createElement('tr');
-    tr.className = 'inv-row';
-    tr.style.background = i%2===0?'#fff':'#f5f5f7';
-    tr.innerHTML = `
-      <td style="padding:8px">${ing.nombre}</td>
-      <td style="padding:8px;text-align:right;font-weight:600">${ing.cant.toFixed(3)}</td>
-      <td style="padding:8px;text-align:center;color:#888">${ing.um}</td>
-      <td style="padding:8px;text-align:right" class="no-print">
-        <input type="number" id="inv-fis-${i}" placeholder="0.000" min="0" step="0.001"
-          oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right">
-      </td>
-      <td id="inv-diff-${i}" style="padding:8px;text-align:right" class="no-print">—</td>
-      <td style="padding:8px;border-bottom:1px solid #ddd;text-align:right" class="print-only">________________</td>`;
-    tbody.appendChild(tr);
+    const familia = ING_A_FAMILIA[ing.nombre.toUpperCase()] || 'SIN FAMILIA';
+    if(!grupos[familia]) grupos[familia] = [];
+    grupos[familia].push({...ing, idx: i});
+  });
+
+  let rowIdx = 0;
+  ORDEN_FAMILIAS.forEach(familia => {
+    const items = grupos[familia];
+    if(!items || !items.length) return;
+
+    // Fila de encabezado de familia
+    const trHead = document.createElement('tr');
+    trHead.innerHTML = `<td colspan="6" style="padding:8px 10px;background:#1F4E79;color:#fff;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase">${familia} (${items.length})</td>`;
+    tbody.appendChild(trHead);
+
+    items.sort((a,b) => a.nombre.localeCompare(b.nombre, 'es')).forEach(ing => {
+      const i = ing.idx;
+      const tr = document.createElement('tr');
+      tr.className = 'inv-row';
+      tr.style.background = rowIdx%2===0?'#fff':'#f5f5f7';
+      tr.innerHTML = `
+        <td style="padding:8px;padding-left:16px">${ing.nombre}</td>
+        <td style="padding:8px;text-align:right;font-weight:600">${ing.cant.toFixed(3)}</td>
+        <td style="padding:8px;text-align:center;color:#888">${ing.um}</td>
+        <td style="padding:8px;text-align:right" class="no-print">
+          <input type="number" id="inv-fis-${i}" placeholder="0.000" min="0" step="0.001"
+            oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right">
+        </td>
+        <td id="inv-diff-${i}" style="padding:8px;text-align:right" class="no-print">—</td>
+        <td style="padding:8px;border-bottom:1px solid #f0f0f0;text-align:right" class="print-only">________________</td>`;
+      tbody.appendChild(tr);
+      rowIdx++;
+    });
   });
 }
 
