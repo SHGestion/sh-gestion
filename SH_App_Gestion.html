@@ -133,6 +133,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
   <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
   <button class="tab" id="tab-btn-stockinicial" style="display:none" onclick="showTab('stockinicial',this)">Stock inicial</button>
+  <button class="tab" id="tab-btn-inventario" onclick="showTab('inventario',this);cargarInventario()">Inventario</button>
   <button class="tab" onclick="showTab('marcaciones',this)">Consumos</button>
 </div>
 
@@ -419,6 +420,88 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
     <div id="si-tabla"></div>
     <button class="btn btnp" style="margin-top:14px;width:100%" onclick="registrarStockInicial()">Registrar stock inicial →</button>
     <div id="si-ok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+  </div>
+</div>
+
+<!-- ═══ INVENTARIO FÍSICO ═══ -->
+<div class="panel" id="tab-inventario">
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      #tab-inventario .card { box-shadow: none; border: none; }
+      body { background: white; }
+      .inv-row td { padding: 10px 6px; font-size: 13px; }
+    }
+    .print-only { display: none; }
+    .inv-row td input { font-size: 15px; padding: 8px; border-radius: 8px; border: 1px solid #ddd; width: 90px; text-align: right; }
+    .inv-diff-ok { color: #2e7d32; font-weight: 600; }
+    .inv-diff-warn { color: #e65100; font-weight: 700; }
+    .inv-diff-alert { color: #c62828; font-weight: 700; background: #ffebee; }
+  </style>
+
+  <!-- Header acciones -->
+  <div class="card no-print">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <strong style="font-size:15px">Toma de Inventario Físico</strong>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="window.print()">🖨 Imprimir lista</button>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="cargarInventario()">↻ Actualizar</button>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field">
+        <span class="lbl">Fecha del inventario</span>
+        <input type="date" id="inv-fecha">
+      </div>
+      <div class="field">
+        <span class="lbl">Responsable</span>
+        <select id="inv-usuario">
+          <option value="">— usuario —</option>
+          <option>Marcelo</option><option>Mauricio</option><option>Gisela</option><option>Mari</option>
+        </select>
+      </div>
+    </div>
+    <!-- Buscador para agregar ingredientes en 0 -->
+    <div style="margin-top:10px">
+      <span class="lbl">Agregar ingrediente con stock 0 que existe físicamente</span>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <input type="text" id="inv-buscar" placeholder="Buscar ingrediente..." style="flex:1" oninput="buscarIngredienteInv(this.value)">
+        <button class="btn btnp" style="font-size:13px;padding:6px 14px" onclick="agregarIngredienteInv()">+ Agregar</button>
+      </div>
+      <div id="inv-sugerencias" style="background:#fff;border:1px solid #ddd;border-radius:8px;margin-top:4px;display:none;max-height:160px;overflow-y:auto;font-size:13px"></div>
+    </div>
+  </div>
+
+  <!-- Encabezado imprimible -->
+  <div class="print-only" style="padding:16px 0 8px;border-bottom:2px solid #1F4E79;margin-bottom:12px">
+    <div style="font-size:18px;font-weight:700">SH Gestión y Servicios SpA — Toma de Inventario Físico</div>
+    <div style="font-size:13px;color:#555;margin-top:4px">Fecha: <span id="inv-fecha-print"></span> &nbsp;|&nbsp; Responsable: _______________</div>
+  </div>
+
+  <!-- Tabla inventario -->
+  <div class="card">
+    <div id="inv-loading" style="color:#888;font-size:13px;padding:6px 0"><span class="spin"></span> Cargando stock actual...</div>
+    <div id="inv-tabla-wrap" style="display:none">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#1F4E79;color:#fff">
+            <th style="padding:9px 8px;text-align:left">Ingrediente</th>
+            <th style="padding:9px 8px;text-align:right;width:90px">Stock sistema</th>
+            <th style="padding:9px 8px;text-align:center;width:50px">UM</th>
+            <th style="padding:9px 8px;text-align:right;width:110px no-print">Cantidad física</th>
+            <th style="padding:9px 8px;text-align:right;width:90px no-print">Diferencia</th>
+            <th style="padding:9px 8px;text-align:center;width:110px print-only" style="display:none">Cantidad física</th>
+          </tr>
+        </thead>
+        <tbody id="inv-tbody"></tbody>
+      </table>
+      <div class="no-print" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btnp" style="flex:1;font-size:14px;padding:10px" onclick="aplicarInventario()">Aplicar ajustes →</button>
+      </div>
+      <div id="inv-ok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+      <div id="inv-err" style="display:none;margin-top:10px;padding:12px;background:#ffebee;border-radius:10px;color:#b71c1c;font-weight:600"></div>
+    </div>
   </div>
 </div>
 
@@ -1882,6 +1965,185 @@ async function cargarDashboard() {
   } else {
     document.getElementById('dash-chart').innerHTML = '<div style="color:#888;font-size:13px;padding:8px">Sin datos del mes actual.</div>';
   }
+}
+
+// ── INVENTARIO FÍSICO ────────────────────────────────────────────────────────
+let invStock = {}; // stock actual del sistema
+let invIngredientes = []; // lista de ingredientes en inventario
+let invTodosIng = []; // todos los ingredientes del maestro para búsqueda
+let invIngSeleccionado = null;
+
+async function cargarInventario() {
+  document.getElementById('inv-loading').style.display = 'block';
+  document.getElementById('inv-tabla-wrap').style.display = 'none';
+
+  // Fecha por defecto hoy
+  const hoy = new Date().toISOString().substring(0,10);
+  document.getElementById('inv-fecha').value = hoy;
+  document.getElementById('inv-fecha-print').textContent = hoy;
+
+  // Calcular stock actual
+  const movRows = await gsGet('Movimientos');
+  invStock = {};
+  if(movRows && movRows.length > 1) {
+    movRows.slice(1).forEach(r => {
+      const ing = (r[2]||'').toString().trim();
+      if(!ing) return;
+      const tipo = (r[1]||'').toString().trim().toUpperCase();
+      const cant = parseFloat(r[3])||0;
+      const key = ing.toUpperCase();
+      if(!invStock[key]) invStock[key] = {nombre: ing, cant: 0, um: (r[4]||'Kg').toString().trim()};
+      if(tipo==='STOCK INICIAL'||tipo==='ENTRADA') invStock[key].cant += cant;
+      else if(tipo==='SALIDA REAL'||tipo==='SALIDA PLAN'||tipo==='MERMA') invStock[key].cant -= cant;
+      else if(tipo==='AJUSTE') invStock[key].cant += cant;
+    });
+  }
+
+  // Cargar maestro para búsqueda
+  const maestroRows = await gsGet('Maestro_Precios');
+  invTodosIng = [];
+  if(maestroRows && maestroRows.length > 1) {
+    maestroRows.slice(1).forEach(r => { if(r[0]) invTodosIng.push((r[0]||'').toString().trim()); });
+  }
+
+  // Filtrar solo stock > 0
+  invIngredientes = Object.values(invStock)
+    .filter(s => s.cant > 0.001)
+    .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  renderTablaInventario();
+  document.getElementById('inv-loading').style.display = 'none';
+  document.getElementById('inv-tabla-wrap').style.display = 'block';
+}
+
+function renderTablaInventario() {
+  const tbody = document.getElementById('inv-tbody');
+  tbody.innerHTML = '';
+  invIngredientes.forEach((ing, i) => {
+    const tr = document.createElement('tr');
+    tr.className = 'inv-row';
+    tr.style.background = i%2===0?'#fff':'#f5f5f7';
+    tr.innerHTML = `
+      <td style="padding:8px">${ing.nombre}</td>
+      <td style="padding:8px;text-align:right;font-weight:600">${ing.cant.toFixed(3)}</td>
+      <td style="padding:8px;text-align:center;color:#888">${ing.um}</td>
+      <td style="padding:8px;text-align:right" class="no-print">
+        <input type="number" id="inv-fis-${i}" placeholder="0.000" min="0" step="0.001"
+          oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right">
+      </td>
+      <td id="inv-diff-${i}" style="padding:8px;text-align:right" class="no-print">—</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd;text-align:right" class="print-only">________________</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function calcDiff(i) {
+  const fis = parseFloat(document.getElementById(`inv-fis-${i}`).value);
+  const diffEl = document.getElementById(`inv-diff-${i}`);
+  if(isNaN(fis)) { diffEl.textContent = '—'; diffEl.className = ''; return; }
+  const teorico = invIngredientes[i].cant;
+  const diff = fis - teorico;
+  const pct = teorico > 0 ? Math.abs(diff/teorico)*100 : 100;
+  diffEl.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(3);
+  diffEl.className = pct > 30 ? 'inv-diff-alert' : pct > 10 ? 'inv-diff-warn' : 'inv-diff-ok';
+}
+
+function buscarIngredienteInv(q) {
+  const sug = document.getElementById('inv-sugerencias');
+  if(!q || q.length < 2) { sug.style.display='none'; return; }
+  const res = invTodosIng.filter(i => i.toUpperCase().includes(q.toUpperCase())).slice(0,8);
+  if(!res.length) { sug.style.display='none'; return; }
+  sug.style.display = 'block';
+  sug.innerHTML = res.map(r => `<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0"
+    onclick="seleccionarIngredienteInv('${r.replace(/'/g,"\\'")}')">
+    ${r} ${invStock[r.toUpperCase()]&&invStock[r.toUpperCase()].cant>0?'<span style=\"color:#2e7d32;font-size:11px\">en stock</span>':''}
+  </div>`).join('');
+}
+
+function seleccionarIngredienteInv(nombre) {
+  document.getElementById('inv-buscar').value = nombre;
+  document.getElementById('inv-sugerencias').style.display = 'none';
+  invIngSeleccionado = nombre;
+}
+
+function agregarIngredienteInv() {
+  const nombre = invIngSeleccionado || document.getElementById('inv-buscar').value.trim();
+  if(!nombre) return;
+  // Verificar que no esté ya en la lista
+  if(invIngredientes.find(i => i.nombre.toUpperCase() === nombre.toUpperCase())) {
+    alert('Este ingrediente ya está en la lista.');
+    return;
+  }
+  const stockExistente = invStock[nombre.toUpperCase()];
+  invIngredientes.push({
+    nombre: nombre,
+    cant: stockExistente ? stockExistente.cant : 0,
+    um: stockExistente ? stockExistente.um : 'Kg'
+  });
+  invIngredientes.sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
+  renderTablaInventario();
+  document.getElementById('inv-buscar').value = '';
+  invIngSeleccionado = null;
+}
+
+async function aplicarInventario() {
+  const fecha = document.getElementById('inv-fecha').value;
+  const u = document.getElementById('inv-usuario').value;
+  if(!fecha) { alert('Selecciona una fecha.'); return; }
+  if(!u) { alert('Selecciona un responsable.'); return; }
+
+  // Recopilar diferencias
+  const ajustes = [];
+  const alertas = [];
+
+  invIngredientes.forEach((ing, i) => {
+    const fisEl = document.getElementById(`inv-fis-${i}`);
+    if(!fisEl || fisEl.value === '') return;
+    const fis = parseFloat(fisEl.value);
+    if(isNaN(fis)) return;
+    const diff = fis - ing.cant;
+    if(Math.abs(diff) < 0.001) return; // sin diferencia
+    const pct = ing.cant > 0 ? Math.abs(diff/ing.cant)*100 : 100;
+    ajustes.push({ing: ing.nombre, teorico: ing.cant, fisico: fis, diff, pct, um: ing.um});
+    if(pct > 30) alertas.push({ing: ing.nombre, teorico: ing.cant.toFixed(3), fisico: fis.toFixed(3), diff: diff.toFixed(3), pct: Math.round(pct)});
+  });
+
+  if(!ajustes.length) {
+    alert('No hay diferencias que ajustar. Ingresa las cantidades físicas primero.');
+    return;
+  }
+
+  // Confirmar alertas de diferencias grandes
+  if(alertas.length > 0) {
+    let msg = `⚠ Se detectaron ${alertas.length} diferencia(s) mayor al 30%:\n\n`;
+    alertas.forEach(a => {
+      msg += `• ${a.ing}:\n  Sistema: ${a.teorico} kg → Físico: ${a.fisico} kg (${a.diff > 0 ? '+' : ''}${a.diff}, ${a.pct}%)\n`;
+    });
+    msg += '\n¿Confirmas que estas diferencias son correctas y deseas aplicar los ajustes?';
+    if(!confirm(msg)) return;
+  }
+
+  // Aplicar ajustes
+  const okEl = document.getElementById('inv-ok');
+  const errEl = document.getElementById('inv-err');
+  okEl.style.display = 'none';
+  errEl.style.display = 'none';
+
+  let aplicados = 0;
+  for(const aj of ajustes) {
+    const r = await gsPost('Movimientos', [
+      fecha, 'AJUSTE', aj.ing, aj.diff.toFixed(3), aj.um,
+      '', '', 'INV-FISICO', '', u,
+      `Inventario físico: sistema ${aj.teorico.toFixed(3)} → físico ${aj.fisico.toFixed(3)}`
+    ]);
+    if(r && r.ok) aplicados++;
+  }
+
+  okEl.style.display = 'block';
+  okEl.textContent = `✓ ${aplicados} ajuste(s) aplicados correctamente. El food cost del ${fecha} se actualizará automáticamente.`;
+
+  // Recargar inventario
+  setTimeout(() => cargarInventario(), 2000);
 }
 
 function showTab(id, el) {
