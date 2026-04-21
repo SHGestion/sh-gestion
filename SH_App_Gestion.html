@@ -561,6 +561,48 @@ function getPrecioSistema(mapeo) {
 }
 
 // ── INICIALIZACIÓN ───────────────────────────────────────────────────────────
+
+// ── FAMILIAS DE INGREDIENTES ──────────────────────────────────────────────────
+const FAMILIAS = {
+  'VACUNO': ['LOMO LISO','POSTA PALETA','POSTA CUBO','POSTA NEGRA','POSTA ROSADA','TAPAPECHO','HUACHALOMO','ASIENTO','OSOBUCO','MALAYA','PLATEADA','SOBRECOSTILLA TRADICIONAL','ENTRECOT','FILETE VACUNO','CARNE MOLIDA','VACUNO CUBO CNG TRADICIONAL','VACUNO DELGADO TRADICIONAL','VACUNO ENTERO MECHADO','VACUNO GRUESO','PUNTA PALETA','LENGUA','HIGADO VACUNO','GUATITA','HUESO','PATITA VACUNO','CHURRASCO LOMO','CHURRASCO ASIENTO SANDWICH','CHURRASCO POSTA SANDWICH','CHURRASCO PULPA'],
+  'AVE': ['PECHUGA DE POLLO DESHUESADA','FILETITO DE POLLO','TRUTRO ENTERO POLLO','TRUTRO ALA DE POLLO','ALA DE POLLO','POLLO ENTERO','POLLO GANSO','HIGADO DE POLLO','ANILLOS DE POLLO','ALA TRUTRO PAVO','TRUTRO CORTO PAVO DESHUESADO','LOMO PAVO S/PIEL CONG','MEDALLON DE PAVO','OSOBUCO PAVO'],
+  'CERDO': ['PULPA CERDO','CHULETA','LONGANIZA','FILETE CERDO','TOCINO','COSTILLAR CERDO','JAMON PIEZA','PERNIL MANO','PRIETAS','GORDA DE CERDO','LONZANICILLA','LOMO KASSLER PIEZA','BLANQUETA CERDO'],
+  'PESCADOS Y MARISCOS': ['MERLUZA','MERLUZA APANADA CONG','SALMON C/PIEL FILETE','CAMARON CONGELADO','SURTIDO MARISCO','JUREL TARRO','PANGASIUS','TILAPIA','CONGRIO DORADO FILETE CONGELADO','CORVINA FILETE','JIBIA','TOLLO FILETE CONGELADO','TRUCHA FILETE PORCIONADO','KANIKAMA','LANGOSTINOS CONGELADOS','KRILL PELADO COCIDO','MACHAS CONGELADAS','CALAMAR CONG','CHORITO CULTIVO CONGELADO'],
+  'VERDURAS DE HOJA': ['ACELGA C/RESOLUCION','ESPINACA P.E.','ESPINACAS CONGELADAS','LECHUGA COSTINA P.E.','LECHUGA ESCAROLA P.E.','LECHUGA HIDROPONICA','RUCULA P.E.','BERRO HIDROPONICO','MIX HOJAS VERDES','ENDIVIA','ESPINACA'],
+  'TUBÉRCULOS': ['PAPAS','PAPA ENTERA P.E.','PAPA COCIDA P.E.','PAPA CUBO P.E.','PAPAS DUQUESAS','PAPAS PREFRITAS','PURE DE PAPAS CONGELADO','ZAPALLO CAMOTE','ZAPALLO CAMOTE CUBO P.E.','ZAPALLO CAMOTE S/PIEL P.E.','PURE KNORR'],
+  'VERDURAS': ['ZAPALLO CUBO','ZAPALLO ITALIANO','CHOCLO GRANO','CHOCLO TROZADO','PASTA DE CHOCLO','CHAMPIÑONES CONG','CHAMPINON PARIS KG','CALLAMPAS DESHIDRATADO','BROCOLI','COLIFLOR','HABAS CONG.','PRIMAVERA','ZANAHORIA CUBO','ARVEJAS','ARVEJAS GUISADAS','POROTO VERDE','POROTOS GRANADOS','APIO','PUERRO','CEBOLLIN','CILANTRO','PEREJIL','BETARRAGA ENTERA P.E.','BETARRAGA JULIANA P.E','NABO','REPOLLO MORADO P.E.','REPOLLO VERDE'],
+  'CEBOLLAS Y ALIÁCEOS': ['CEBOLLAS','CEBOLLA CUBO','CEBOLLA ENTERA P.E.','CEBOLLA MORADA','CEBOLLA PERLA','CEBOLLA PLUMA P.E.','AJOS','AJO'],
+  'TOMATE Y PIMENTÓN': ['TOMATE','PIMENTON ROJO','PIMENTON','PIMIENTO ROJO','PIMIENTO VERDE','PIMIENTO AMARILLO','CONCENTRADO DE TOMATE'],
+  'ZANAHORIAS': ['ZANAHORIAS','ZANAHORIA CUBO','ZANAHORIA ENTERA P.E.'],
+  'LEGUMBRES': ['LENTEJAS','GARBANZOS','POROTO HALLADO','POROTO NEGRO','POROTO VERDE','POROTOS GRANADOS','ARVEJAS','ARVEJAS PARTIDAS SECAS','HABAS CONG.','GARBANZOS COCIDOS','LENTEJAS GUISADAS','HABAS COCIDAS'],
+  'PASTAS Y FIDEOS': ['FIDEOS SPAGHETTI (400GRS)','FIDEOS FETUCCINI','FIDEOS ESPIRAL','FIDEOS MARIPOSA','FIDEOS CORBATA','FIDEO LASAÑA','FIDEOS MOSTACCIOLI (400GRS)','FIDEOS CABELLO','PANTRUCAS','ÑOQUIS','ÑOQUETIS','FIDEOS FETUCCINI (400GRS)'],
+  'ARROZ Y CEREALES': ['ARROZ','QUINOA','COUS COUS','SEMOLA','TRIGO MOTE','POLENTA','AVENA MACHACADA'],
+  'FRUTAS FRESCAS': ['MANZANA','NARANJAS','PERAS','PLATANO','KIWI','SANDIA','MELON','CHIRIMOYA','MANGO','UVA','LIMON'],
+  'FRUTAS CONSERVA': ['DURAZNO AL JUGO MITAD','CEREZA AL JUGO','COCKTAIL DE FRUTA','HUESILLOS','PINA AL JUGO CUBITOS','PINA AL JUGO RODAJAS','PAPAYA AL JUGO','PERA AL JUGO','DAMASCO AL JUGO'],
+  'LÁCTEOS': ['LECHE LARGA VIDA','LECHE EN POLVO','LECHE ASADA','LECHE CONDENSADA','QUESO RALLADO','QUESO HEBRA','QUESO CHANCO','QUESO GAUDA BARRA','QUESO GAUDA LAMINADO','QUESO MANTECOSO','QUESO MOZARELLA','QUESO PARMESANO','QUESO FRESCO','QUESO CREMA','QUESO EDAM','QUESO GRUYERE','MANTEQUILLA','MARGARINA','CREMA DE LECHE','RICOTTA']
+};
+
+// Construir índice inverso: ingrediente -> familia
+const ING_A_FAMILIA = {};
+Object.entries(FAMILIAS).forEach(([familia, ings]) => {
+  ings.forEach(ing => { ING_A_FAMILIA[ing.toUpperCase()] = familia; });
+});
+
+function getFamiliaAlternativas(ing, stockActual) {
+  const familia = ING_A_FAMILIA[ing.toUpperCase()];
+  if(!familia) return [];
+  const miembros = FAMILIAS[familia] || [];
+  // Filtrar los que tienen stock > 0 y no son el mismo ingrediente
+  return miembros
+    .filter(m => m.toUpperCase() !== ing.toUpperCase())
+    .map(m => ({
+      nombre: m,
+      stock: stockActual[m.toUpperCase()] || 0
+    }))
+    .filter(m => m.stock > 0)
+    .sort((a,b) => b.stock - a.stock);
+}
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 let usuarioActual = null;
 let rolActual = null;
@@ -775,6 +817,23 @@ function addFilaC() {
   renderC();
 }
 
+async function calcularStockActual() {
+  const rows = await gsGet('Movimientos');
+  if(!rows || rows.length < 2) return {};
+  const stock = {};
+  rows.slice(1).forEach(r => {
+    const ing = (r[2]||'').toString().trim().toUpperCase();
+    if(!ing) return;
+    const tipo = (r[1]||'').toString().trim().toUpperCase();
+    const cant = parseFloat(r[3])||0;
+    if(!stock[ing]) stock[ing] = 0;
+    if(tipo==='STOCK INICIAL'||tipo==='ENTRADA') stock[ing] += cant;
+    else if(tipo==='SALIDA REAL'||tipo==='SALIDA PLAN'||tipo==='MERMA') stock[ing] -= cant;
+    else if(tipo==='AJUSTE') stock[ing] += cant;
+  });
+  return stock;
+}
+
 async function regConsumo() {
   const u = getUsuario();
   if(!u) { alert('Selecciona un usuario.'); return; }
@@ -790,6 +849,50 @@ async function regConsumo() {
   cok.style.display = 'block';
   cok.style.background = '#e3f2fd';
   cok.style.color = '#1565c0';
+  cok.textContent = 'Verificando stock...';
+
+  // Calcular stock actual
+  const stockActual = await calcularStockActual();
+
+  // Agrupar consumos por ingrediente
+  const consumoAgrupado = {};
+  conReal.forEach(row => {
+    const ing = row.ing.toUpperCase();
+    consumoAgrupado[ing] = (consumoAgrupado[ing]||0) + parseFloat(row.real);
+  });
+
+  // Verificar stock — bloquear si disponible <= 0 o quedaría negativo
+  const sinStock = [];
+  Object.entries(consumoAgrupado).forEach(([ing, consumo]) => {
+    const disponible = stockActual[ing] !== undefined ? stockActual[ing] : null;
+    const proyectado = disponible !== null ? disponible - consumo : null;
+    if(disponible === null || disponible <= 0) {
+      sinStock.push({ ing, disponible: disponible !== null ? disponible : 'Sin registro', consumo: consumo.toFixed(3), deficit: consumo.toFixed(3) });
+    } else if(proyectado < -0.001) {
+      sinStock.push({ ing, disponible: disponible.toFixed(3), consumo: consumo.toFixed(3), deficit: Math.abs(proyectado).toFixed(3) });
+    }
+  });
+
+  if(sinStock.length > 0) {
+    // Construir mensaje con alternativas por familia
+    let mensaje = '⚠ Stock insuficiente para los siguientes ingredientes:\n\n';
+    sinStock.forEach(s => {
+      mensaje += `• ${s.ing}: disponible ${s.disponible} kg, necesario ${s.consumo} kg\n`;
+      const alts = getFamiliaAlternativas(s.ing, stockActual);
+      if(alts.length > 0) {
+        mensaje += `  Alternativas disponibles (${ING_A_FAMILIA[s.ing.toUpperCase()]||'misma familia'}):\n`;
+        alts.slice(0,4).forEach(a => {
+          mensaje += `  → ${a.nombre}: ${a.stock.toFixed(3)} kg disponibles\n`;
+        });
+      }
+      mensaje += '\n';
+    });
+    mensaje += 'Registra el stock faltante o usa una alternativa disponible.';
+    alert(mensaje);
+    cok.style.display = 'none';
+    if(btn) { btn.disabled = false; }
+    return;
+  }
 
   let registrados = 0;
   for(const row of conReal) {
