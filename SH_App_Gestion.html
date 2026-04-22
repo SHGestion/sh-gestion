@@ -350,7 +350,11 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <div class="field"><span class="lbl">Observaciones del servicio</span>
     <input type="text" id="cobs" placeholder="Ej: sobró puré, faltó ensalada de coliflor">
   </div>
-  <button class="btn btns btnb" onclick="regConsumo()">Registrar consumo real →</button>
+  <div id="cborrador-aviso" style="display:none;margin-bottom:8px;padding:10px 12px;background:#fff3e0;border-radius:10px;color:#e65100;font-size:13px"></div>
+  <div style="display:flex;gap:10px;margin-top:0">
+    <button class="btn" style="flex:1;font-size:13px;padding:10px" onclick="guardarBorradorConsumo()">💾 Guardar borrador</button>
+    <button class="btn btns" style="flex:2;font-size:14px;padding:10px" onclick="regConsumo()">Registrar consumo real →</button>
+  </div>
   <div id="cok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
 </div>
 
@@ -832,6 +836,24 @@ async function init() {
 }
 
 // ── CONSUMO REAL — carga desde DetalleInsumos_GS ────────────────────────────
+// Normalizar nombre de ingrediente contra maestroPrecios
+function normalizarIng(nombre) {
+  if(!nombre) return nombre;
+  const k = nombre.trim().toUpperCase();
+  // Buscar match exacto
+  if(maestroPrecios[k]) return maestroPrecios[k].nombre || nombre.trim();
+  // Buscar sin P.E., C/RESOLUCION, P.E, variantes
+  const limpio = k.replace(/\s*P\.E\.?\s*/g,'').replace(/\s*C\/RESOLUCI[OÓ]N\s*/g,'').replace(/\s*C\/RESOLUCI[OÓN]N\s*/g,'').trim();
+  if(maestroPrecios[limpio]) return maestroPrecios[limpio].nombre || nombre.trim();
+  // Buscar singular/plural simple
+  const sinS = k.endsWith('S') ? k.slice(0,-1) : k+'S';
+  if(maestroPrecios[sinS]) return maestroPrecios[sinS].nombre || nombre.trim();
+  // Buscar en equivalencias
+  const eq = equivalencias[k];
+  if(eq && maestroPrecios[eq.toUpperCase()]) return maestroPrecios[eq.toUpperCase()].nombre || eq;
+  return nombre.trim();
+}
+
 async function cargarDia() {
   const fecha = document.getElementById('cfecha').value;
   if(!fecha) return;
@@ -842,16 +864,49 @@ async function cargarDia() {
   document.getElementById('ctbody').innerHTML = '';
   filasExtra = [];
 
-  // Filtrar ingredientes del día
+  // Verificar si hay borrador guardado para esta fecha
+  let borradorFecha = null;
+  let borradorUsuario = '';
+  try {
+    const borrador = await gsGet('Borrador_Consumo');
+    if(borrador && borrador.length > 1) {
+      const metaFila = borrador[1];
+      if(metaFila && String(metaFila[2]).substring(0,10) === fecha) {
+        borradorFecha = borrador.slice(2);
+        borradorUsuario = String(metaFila[1]||'');
+      }
+    }
+  } catch(e) {}
+
+  // Filtrar ingredientes del día con mapeo automático
   ingredientesDia = detalleInsumos
     .filter(r => r.fecha === fecha && r.ingrediente)
-    .map(r => ({
-      prep: r.prep,
-      ing: r.ingrediente,
-      raciones: r.raciones,
-      plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
-      real: (r.crudoTotal / 1000).toFixed(3)
-    }));
+    .map(r => {
+      const ingNorm = normalizarIng(r.ingrediente);
+      return {
+        prep: r.prep,
+        ing: ingNorm,
+        ingOriginal: r.ingrediente,
+        raciones: r.raciones,
+        racActual: r.raciones,
+        gxr: r.raciones > 0 ? r.crudoTotal / r.raciones : 0,
+        plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
+        real: (r.crudoTotal / 1000).toFixed(3)
+      };
+    });
+
+  // Aplicar borrador si existe
+  if(borradorFecha) {
+    const avisoEl = document.getElementById('cborrador-aviso');
+    avisoEl.style.display = 'block';
+    avisoEl.textContent = `📋 Borrador cargado. Guardado por ${borradorUsuario||'usuario desconocido'}.`;
+    borradorFecha.forEach(br => {
+      const idx = ingredientesDia.findIndex(r => r.ing.toUpperCase() === String(br[1]).toUpperCase());
+      if(idx >= 0) ingredientesDia[idx].real = br[2];
+    });
+  } else {
+    document.getElementById('cborrador-aviso').style.display = 'none';
+  }
 
   document.getElementById('cloading').style.display = 'none';
 
@@ -875,12 +930,16 @@ function renderC() {
   const todo = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
 
   todo.forEach((row, i) => {
-    const r = parseFloat(row.real) || 0;
+    const r = parseFloat(row.real);
     const isM = i >= ingredientesDia.length;
-    const dif = row.real !== '' ? r - row.plan : null;
+    const realVal = isNaN(r) ? row.plan : r;
+    const dif = row.real !== '' && !isNaN(r) ? realVal - row.plan : null;
+    const esExacto = dif !== null && Math.abs(dif) <= 0.001;
+    const esCero = row.real !== '' && realVal === 0;
+
     const ds = dif !== null ? (dif >= 0 ? '+' : '') + dif.toFixed(3) + ' kg' : '—';
-    const dc = dif === null ? '#888' : dif > 0.05 ? '#c62828' : dif < -0.05 ? '#e65100' : '#2e7d32';
-    const tipo = dif === null ? '—' : dif > 0.05 ? 'Exceso' : dif < -0.05 ? 'Merma' : 'OK';
+    const dc = dif === null ? '#888' : esExacto || esCero ? '#2e7d32' : dif > 0.05 ? '#c62828' : dif < -0.05 ? '#e65100' : '#2e7d32';
+    const tipo = dif === null ? '—' : esCero ? 'No usado' : esExacto ? 'OK' : dif > 0.05 ? 'Exceso' : dif < -0.05 ? 'Merma' : 'OK';
 
     const ingH = isM
       ? `<input type="text" value="${row.ing}" placeholder="Ingrediente" style="font-size:12px" onchange="updC(${i},'ing',this.value)" list="maestro-list">`
@@ -889,23 +948,96 @@ function renderC() {
       ? `<input type="text" value="${row.prep||''}" placeholder="Preparación" style="font-size:12px" onchange="updC(${i},'prep',this.value)">`
       : `<span style="font-size:11px;color:#888">${row.prep||''}</span>`;
 
-    tb.innerHTML += `<tr>
+    // Raciones editables solo para filas planificadas
+    const racH = isM
+      ? `<span style="font-size:12px;color:#888">${row.raciones||''}</span>`
+      : `<input type="number" min="0" step="1" value="${row.racActual||row.raciones||''}" style="font-size:12px;width:55px;text-align:right" onchange="updRaciones(${i},this.value)">`;
+
+    tb.innerHTML += `<tr id="crow-${i}">
       <td>${prepH}</td>
       <td>${ingH}</td>
-      <td style="text-align:right;color:#888;font-size:12px">${row.raciones||''}</td>
+      <td style="text-align:right">${racH}</td>
       <td style="text-align:right;color:#888;font-size:12px">${row.plan.toFixed(3)}</td>
-      <td><input type="number" step="0.001" min="0" value="${row.real !== '' ? row.real : row.plan.toFixed(3)}" placeholder="${row.plan.toFixed(3)}"
-          style="font-size:13px" onchange="updC(${i},'real',this.value)"></td>
+      <td><input type="number" step="0.001" min="0" value="${row.real !== '' ? parseFloat(row.real).toFixed(3) : row.plan.toFixed(3)}" placeholder="${row.plan.toFixed(3)}"
+          style="font-size:13px" onchange="updC(${i},'real',this.value)" id="cinput-${i}"></td>
       <td style="text-align:right;color:${dc};font-weight:600;font-size:13px">${ds}</td>
       <td style="font-size:12px;color:${dc}">${tipo}</td>
-    </tr>`;
+    </tr>
+    <tr id="calt-${i}" style="display:none"><td colspan="7" style="padding:0 8px 8px;background:#fff8e1"><div id="calt-inner-${i}" style="font-size:12px;color:#888"></div></td></tr>`;
   });
+}
+
+function updRaciones(i, v) {
+  const nRac = parseInt(v) || 0;
+  if(nRac > 0 && ingredientesDia[i].gxr > 0) {
+    const nuevoPlan = parseFloat((nRac * ingredientesDia[i].gxr / 1000).toFixed(4));
+    ingredientesDia[i].racActual = nRac;
+    ingredientesDia[i].plan = nuevoPlan;
+    ingredientesDia[i].real = nuevoPlan.toFixed(3);
+  }
+  renderC();
+}
+
+function mostrarAlternativasInline(i, ing, stockActual) {
+  const alts = getFamiliaAlternativas(ing, stockActual);
+  const altRow = document.getElementById(`calt-${i}`);
+  const altInner = document.getElementById(`calt-inner-${i}`);
+  if(!altRow || !altInner) return;
+  if(!alts.length) {
+    altRow.style.display = 'none';
+    return;
+  }
+  altRow.style.display = '';
+  const familia = ING_A_FAMILIA[ing.toUpperCase()] || 'misma familia';
+  altInner.innerHTML = `<strong>Alternativas disponibles (${familia}):</strong>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+      ${alts.slice(0,6).map(a =>
+        `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
+          onclick="usarAlternativa(${i},'${a.nombre.replace(/'/g,"\\'")}')">
+          ${a.nombre} (${a.stock.toFixed(2)} kg)
+        </button>`
+      ).join('')}
+    </div>`;
+}
+
+function usarAlternativa(i, nombre) {
+  ingredientesDia[i].ing = nombre;
+  document.getElementById(`calt-${i}`).style.display = 'none';
+  renderC();
 }
 
 function updC(i, k, v) {
   if(i < ingredientesDia.length) ingredientesDia[i][k] = v;
   else filasExtra[i - ingredientesDia.length][k] = v;
   renderC();
+}
+
+async function guardarBorradorConsumo() {
+  const u = getUsuario();
+  const fecha = document.getElementById('cfecha').value;
+  if(!fecha) { alert('Selecciona una fecha primero.'); return; }
+  if(!u) { alert('Selecciona un usuario.'); return; }
+
+  const todo = [...ingredientesDia, ...filasExtra];
+  const filas = todo
+    .filter(r => r.real !== '' && !isNaN(parseFloat(r.real)))
+    .map(r => [fecha, r.ing, parseFloat(r.real).toFixed(3), r.prep||'']);
+
+  // Limpiar borrador anterior y escribir nuevo
+  await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({accion:'clear', hoja:'Borrador_Consumo'})});
+  // Encabezado con metadata
+  await gsPost('Borrador_Consumo', ['BORRADOR', u, fecha, new Date().toLocaleString('es-CL'), filas.length + ' items']);
+  for(const f of filas) {
+    await gsPost('Borrador_Consumo', f);
+  }
+
+  const cok = document.getElementById('cok');
+  cok.style.display = 'block';
+  cok.style.background = '#fff3e0';
+  cok.style.color = '#e65100';
+  cok.textContent = `💾 Borrador guardado (${filas.length} ingredientes). Otro usuario puede continuar.`;
+  setTimeout(() => { cok.style.display = 'none'; }, 4000);
 }
 
 function addFilaC() {
@@ -937,7 +1069,7 @@ async function regConsumo() {
   if(!fecha) { alert('Selecciona una fecha.'); return; }
   const obs = document.getElementById('cobs').value;
   const todo = [...ingredientesDia, ...filasExtra];
-  const conReal = todo.filter(r => r.real !== '' && parseFloat(r.real) >= 0);
+  const conReal = todo.filter(r => r.real !== '' && parseFloat(r.real) > 0);
 
   const btn = document.querySelector('#tab-consumo .btn.btnb');
   const cok = document.getElementById('cok');
@@ -970,23 +1102,19 @@ async function regConsumo() {
   });
 
   if(sinStock.length > 0) {
-    // Construir mensaje con alternativas por familia
-    let mensaje = '⚠ Stock insuficiente para los siguientes ingredientes:\n\n';
+    // Mostrar alternativas inline en la tabla
     sinStock.forEach(s => {
-      mensaje += `• ${s.ing}: disponible ${s.disponible} kg, necesario ${s.consumo} kg\n`;
-      const alts = getFamiliaAlternativas(s.ing, stockActual);
-      if(alts.length > 0) {
-        mensaje += `  Alternativas disponibles (${ING_A_FAMILIA[s.ing.toUpperCase()]||'misma familia'}):\n`;
-        alts.slice(0,4).forEach(a => {
-          mensaje += `  → ${a.nombre}: ${a.stock.toFixed(3)} kg disponibles\n`;
-        });
-      }
-      mensaje += '\n';
+      const idx = ingredientesDia.findIndex(r => r.ing.toUpperCase() === s.ing.toUpperCase());
+      if(idx >= 0) mostrarAlternativasInline(idx, s.ing, stockActual);
     });
-    mensaje += 'Registra el stock faltante o usa una alternativa disponible.';
-    alert(mensaje);
-    cok.style.display = 'none';
-    if(btn) { btn.disabled = false; }
+    const lista = sinStock.map(s =>
+      `• ${s.ing}: disponible ${s.disponible} kg, necesario ${s.consumo} kg`
+    ).join('\n');
+    cok.style.display = 'block';
+    cok.style.background = '#ffebee';
+    cok.style.color = '#b71c1c';
+    cok.textContent = `⚠ Stock insuficiente para ${sinStock.length} ingrediente(s). Ver alternativas en la tabla.\n${lista}`;
+    if(btn) { btn.disabled = false; btn.textContent = 'Registrar consumo real →'; }
     return;
   }
 
