@@ -127,14 +127,15 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="showTab('dashboard',this);cargarDashboard()">Dashboard</button>
-  <button class="tab" onclick="showTab('facturas',this)">Facturas</button>
-  <button class="tab" onclick="showTab('consumo',this)">Consumo real</button>
-  <button class="tab" onclick="showTab('movimientos',this)">Movimientos</button>
-  <button class="tab" onclick="showTab('stock',this);cargarStock()">Stock</button>
+  <button class="tab active" id="tab-btn-dashboard" onclick="showTab('dashboard',this);cargarDashboard()">Dashboard</button>
+  <button class="tab" id="tab-btn-facturas" onclick="showTab('facturas',this)">Facturas</button>
+  <button class="tab" id="tab-btn-consumo" onclick="showTab('consumo',this)">Consumo real</button>
+  <button class="tab" id="tab-btn-movimientos" onclick="showTab('movimientos',this)">Movimientos</button>
+  <button class="tab" id="tab-btn-stock" onclick="showTab('stock',this);cargarStock()">Stock</button>
   <button class="tab" id="tab-btn-stockinicial" style="display:none" onclick="showTab('stockinicial',this)">Stock inicial</button>
   <button class="tab" id="tab-btn-inventario" onclick="showTab('inventario',this);cargarInventario()">Inventario</button>
-  <button class="tab" onclick="showTab('marcaciones',this)">Consumos</button>
+  <button class="tab" id="tab-btn-marcaciones" onclick="showTab('marcaciones',this)">Consumos</button>
+  <button class="tab" id="tab-btn-gastos" onclick="showTab('gastos',this);cargarGastos()">Gastos</button>
 </div>
 
 <!-- ═══ TAB 0: DASHBOARD ═══ -->
@@ -154,39 +155,54 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
     </div>
     <div id="dash-tramo-label" style="font-size:12px;color:#888;margin-bottom:12px"></div>
 
-    <!-- Métricas principales -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <!-- Métricas mes acumulado -->
+    <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Acumulado del mes</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
       <div style="background:#e3f2fd;border-radius:10px;padding:12px;text-align:center">
-        <div style="font-size:10px;color:#1565c0;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Raciones hoy</div>
-        <div id="dash-rac-dia" style="font-size:24px;font-weight:700;color:#1565c0;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#1565c0;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Raciones mes</div>
+        <div id="dash-rac-mes" style="font-size:24px;font-weight:700;color:#1565c0;margin:4px 0">—</div>
         <div style="font-size:10px;color:#555">consumidores</div>
       </div>
       <div style="background:#e8f5e9;border-radius:10px;padding:12px;text-align:center">
-        <div style="font-size:10px;color:#2e7d32;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Venta hoy</div>
-        <div id="dash-vta-dia" style="font-size:20px;font-weight:700;color:#2e7d32;margin:4px 0">—</div>
-        <div style="font-size:10px;color:#555">estimada</div>
+        <div style="font-size:10px;color:#2e7d32;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Venta estimada mes</div>
+        <div id="dash-vta-mes" style="font-size:18px;font-weight:700;color:#2e7d32;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">según tramo</div>
       </div>
       <div style="background:#fff3e0;border-radius:10px;padding:12px;text-align:center">
-        <div style="font-size:10px;color:#e65100;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Food Cost hoy</div>
-        <div id="dash-fc-dia" style="font-size:24px;font-weight:700;color:#e65100;margin:4px 0">—</div>
-        <div style="font-size:10px;color:#555">costo / venta</div>
+        <div style="font-size:10px;color:#e65100;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Compras MP mes</div>
+        <div id="dash-compras-mes" style="font-size:18px;font-weight:700;color:#e65100;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">entradas valorizadas</div>
+      </div>
+      <div style="background:#fce4ec;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#880e4f;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Costo MP mes</div>
+        <div id="dash-costo-mes" style="font-size:18px;font-weight:700;color:#880e4f;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">consumo valorizado</div>
+      </div>
+      <div style="background:#f3e5f5;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#6a1b9a;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Stock valorizado</div>
+        <div id="dash-stock-val" style="font-size:18px;font-weight:700;color:#6a1b9a;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">inventario actual</div>
+      </div>
+      <div style="background:#efebe9;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#4e342e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Gastos generales mes</div>
+        <div id="dash-gastos-mes" style="font-size:18px;font-weight:700;color:#4e342e;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">acumulado mes</div>
       </div>
     </div>
 
-    <!-- Tabla resumen períodos -->
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead>
-        <tr style="background:#1F4E79;color:#fff">
-          <th style="padding:8px;text-align:left">Período</th>
-          <th style="padding:8px;text-align:right">Raciones</th>
-          <th style="padding:8px;text-align:right">Venta</th>
-          <th style="padding:8px;text-align:right">Costo MP</th>
-          <th style="padding:8px;text-align:right">Food Cost</th>
-          <th style="padding:8px;text-align:right">$/Ración</th>
-        </tr>
-      </thead>
-      <tbody id="dash-tabla"></tbody>
-    </table>
+    <!-- Food cost mes destacado -->
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
+      <div style="background:#fff8e1;border-radius:10px;padding:14px;text-align:center;border:2px solid #ffd54f">
+        <div style="font-size:10px;color:#f57f17;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Food Cost mes</div>
+        <div id="dash-fc-mes" style="font-size:32px;font-weight:700;color:#f57f17;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">costo MP / venta</div>
+      </div>
+      <div style="background:#e8f5e9;border-radius:10px;padding:14px;text-align:center;border:2px solid #a5d6a7">
+        <div style="font-size:10px;color:#2e7d32;font-weight:600;text-transform:uppercase;letter-spacing:.5px">$/Ración mes</div>
+        <div id="dash-xrac-mes" style="font-size:32px;font-weight:700;color:#2e7d32;margin:4px 0">—</div>
+        <div style="font-size:10px;color:#555">costo promedio</div>
+      </div>
+    </div>
   </div>
 
   <!-- Gráfico tendencia food cost -->
@@ -511,6 +527,191 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   </div>
 </div>
 
+<!-- ═══ GASTOS GENERALES ═══ -->
+<div class="panel" id="tab-gastos">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <strong style="font-size:15px">Gastos Generales</strong>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="exportarGastos()">⬇ Exportar Excel</button>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="cargarGastos()">↻ Actualizar</button>
+      </div>
+    </div>
+
+    <!-- Formulario nuevo gasto -->
+    <div style="background:#f5f5f7;border-radius:12px;padding:14px;margin-bottom:16px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:10px;color:#1F4E79">➕ Registrar gasto</div>
+      <div class="g2" style="gap:10px">
+        <div class="field">
+          <span class="lbl">Fecha</span>
+          <input type="date" id="gasto-fecha">
+        </div>
+        <div class="field">
+          <span class="lbl">Familia del gasto</span>
+          <select id="gasto-familia" style="width:100%">
+            <option value="">— Seleccionar —</option>
+            <option>Seguros</option>
+            <option>Licencias TI</option>
+            <option>Aseo y Limpieza</option>
+            <option>Combustible</option>
+            <option>Gas</option>
+            <option>Gastos de Representación</option>
+            <option>Peajes</option>
+            <option>Activos Fijos</option>
+            <option>Otros</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="lbl">Tipo documento</span>
+          <select id="gasto-tipo-doc" style="width:100%">
+            <option value="">— Tipo —</option>
+            <option>Boleta</option>
+            <option>Factura</option>
+            <option>Ticket</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="lbl">Folio N°</span>
+          <input type="text" id="gasto-folio" placeholder="Número documento">
+        </div>
+        <div class="field">
+          <span class="lbl">Monto ($)</span>
+          <input type="number" id="gasto-monto" placeholder="0" min="0" step="1">
+        </div>
+        <div class="field">
+          <span class="lbl">Responsable</span>
+          <select id="gasto-usuario" style="width:100%">
+            <option value="">— usuario —</option>
+            <option>Marcelo</option><option>Mauricio</option><option>Gisela</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <span class="lbl">Descripción</span>
+        <input type="text" id="gasto-desc" placeholder="Descripción del gasto">
+      </div>
+      <button class="btn btnp" style="margin-top:10px;width:100%;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      <div id="gasto-ok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-weight:600"></div>
+      <div id="gasto-err" style="display:none;margin-top:8px;padding:10px;background:#ffebee;border-radius:8px;color:#b71c1c;font-weight:600"></div>
+    </div>
+
+    <!-- Filtros -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <select id="gasto-filtro-mes" style="font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid #ddd" onchange="cargarGastos()">
+        <option value="">Todos los meses</option>
+      </select>
+      <select id="gasto-filtro-familia" style="font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid #ddd" onchange="cargarGastos()">
+        <option value="">Todas las familias</option>
+        <option>Seguros</option><option>Licencias TI</option><option>Aseo y Limpieza</option>
+        <option>Combustible</option><option>Gas</option><option>Gastos de Representación</option>
+        <option>Peajes</option><option>Activos Fijos</option><option>Otros</option>
+      </select>
+      <div style="margin-left:auto;font-size:13px;font-weight:600;color:#1F4E79">
+        Total: <span id="gasto-total-label" style="color:#c62828">$0</span>
+      </div>
+    </div>
+
+    <!-- Tabla gastos -->
+    <div id="gasto-loading" style="color:#888;font-size:13px;padding:8px"><span class="spin"></span> Cargando...</div>
+    <div id="gasto-tabla-wrap" style="display:none;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#1F4E79;color:#fff">
+            <th style="padding:8px;text-align:left">Fecha</th>
+            <th style="padding:8px;text-align:left">Familia</th>
+            <th style="padding:8px;text-align:left">Tipo Doc.</th>
+            <th style="padding:8px;text-align:left">Folio</th>
+            <th style="padding:8px;text-align:left">Descripción</th>
+            <th style="padding:8px;text-align:right">Monto</th>
+            <th style="padding:8px;text-align:left">Responsable</th>
+          </tr>
+        </thead>
+        <tbody id="gasto-tbody"></tbody>
+      </table>
+    </div>
+    <div id="gasto-empty" style="display:none;color:#888;font-size:13px;padding:12px;text-align:center">Sin gastos registrados para el período seleccionado.</div>
+  </div>
+</div>
+
+<!-- ═══ GASTOS GENERALES ═══ -->
+<div class="panel" id="tab-gastos">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <strong style="font-size:15px">Gastos Generales</strong>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="exportarGastos()">⬇ Exportar Excel</button>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="cargarGastos()">↻ Actualizar</button>
+      </div>
+    </div>
+    <div style="background:#f5f5f7;border-radius:12px;padding:14px;margin-bottom:16px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:10px;color:#1F4E79">➕ Registrar gasto</div>
+      <div class="g2" style="gap:10px">
+        <div class="field"><span class="lbl">Fecha</span><input type="date" id="gasto-fecha"></div>
+        <div class="field"><span class="lbl">Familia del gasto</span>
+          <select id="gasto-familia" style="width:100%">
+            <option value="">— Seleccionar —</option>
+            <option>Seguros</option><option>Licencias TI</option><option>Aseo y Limpieza</option>
+            <option>Combustible</option><option>Gas</option><option>Gastos de Representación</option>
+            <option>Peajes</option><option>Activos Fijos</option><option>Otros</option>
+          </select>
+        </div>
+        <div class="field"><span class="lbl">Tipo documento</span>
+          <select id="gasto-tipo-doc" style="width:100%">
+            <option value="">— Tipo —</option><option>Boleta</option><option>Factura</option><option>Ticket</option>
+          </select>
+        </div>
+        <div class="field"><span class="lbl">Folio N°</span><input type="text" id="gasto-folio" placeholder="Número documento"></div>
+        <div class="field"><span class="lbl">Monto ($)</span><input type="number" id="gasto-monto" placeholder="0" min="0" step="1"></div>
+        <div class="field"><span class="lbl">Responsable</span>
+          <select id="gasto-usuario" style="width:100%">
+            <option value="">— usuario —</option>
+            <option>Marcelo</option><option>Mauricio</option><option>Gisela</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <span class="lbl">Descripción</span>
+        <input type="text" id="gasto-desc" placeholder="Descripción del gasto">
+      </div>
+      <button class="btn btnp" style="margin-top:10px;width:100%;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      <div id="gasto-ok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-weight:600"></div>
+      <div id="gasto-err" style="display:none;margin-top:8px;padding:10px;background:#ffebee;border-radius:8px;color:#b71c1c;font-weight:600"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <select id="gasto-filtro-mes" style="font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid #ddd" onchange="cargarGastos()">
+        <option value="">Todos los meses</option>
+      </select>
+      <select id="gasto-filtro-familia" style="font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid #ddd" onchange="cargarGastos()">
+        <option value="">Todas las familias</option>
+        <option>Seguros</option><option>Licencias TI</option><option>Aseo y Limpieza</option>
+        <option>Combustible</option><option>Gas</option><option>Gastos de Representación</option>
+        <option>Peajes</option><option>Activos Fijos</option><option>Otros</option>
+      </select>
+      <div style="margin-left:auto;font-size:13px;font-weight:600;color:#1F4E79">
+        Total: <span id="gasto-total-label" style="color:#c62828">$0</span>
+      </div>
+    </div>
+    <div id="gasto-loading" style="color:#888;font-size:13px;padding:8px"><span class="spin"></span> Cargando...</div>
+    <div id="gasto-tabla-wrap" style="display:none;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#1F4E79;color:#fff">
+            <th style="padding:8px;text-align:left">Fecha</th>
+            <th style="padding:8px;text-align:left">Familia</th>
+            <th style="padding:8px;text-align:left">Tipo Doc.</th>
+            <th style="padding:8px;text-align:left">Folio</th>
+            <th style="padding:8px;text-align:left">Descripción</th>
+            <th style="padding:8px;text-align:right">Monto</th>
+            <th style="padding:8px;text-align:left">Responsable</th>
+          </tr>
+        </thead>
+        <tbody id="gasto-tbody"></tbody>
+      </table>
+    </div>
+    <div id="gasto-empty" style="display:none;color:#888;font-size:13px;padding:12px;text-align:center">Sin gastos registrados.</div>
+  </div>
+</div>
+
 <div class="panel" id="tab-stock">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -742,12 +943,21 @@ async function doLogin() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-main').style.display = 'block';
   document.getElementById('header-usuario').textContent = u;
-  // Ocultar pestañas según rol
+  // Tabs visibles por rol
+  const TABS_ADMIN = ['dashboard','facturas','consumo','movimientos','stock','stockinicial','inventario','marcaciones','gastos'];
+  const TABS_COCINA = ['consumo','movimientos','stock','inventario']; // Mari
+  const tabsPermitidos = rolActual === 'admin' ? TABS_ADMIN : TABS_COCINA;
+  document.querySelectorAll('.tab[id^="tab-btn-"]').forEach(btn => {
+    const id = btn.id.replace('tab-btn-','');
+    if(id === 'stockinicial') return; // controlado por cargarStock
+    btn.style.display = tabsPermitidos.includes(id) ? '' : 'none';
+  });
+  // Si Mari, ir directo a consumo real
   if(rolActual !== 'admin') {
-    document.querySelectorAll('.tab').forEach(btn => {
-      const oc = btn.getAttribute('onclick') || '';
-      if(oc.includes('marcaciones')) btn.style.display = 'none';
-    });
+    setTimeout(() => {
+      const btnConsumo = document.getElementById('tab-btn-consumo');
+      if(btnConsumo) btnConsumo.click();
+    }, 300);
   }
   await init();
   cargarDashboard();
@@ -1979,8 +2189,6 @@ function getTramoNombre(precio) {
 }
 
 async function cargarDashboard() {
-  const dashTabla = document.getElementById('dash-tabla');
-  dashTabla.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#888;text-align:center"><span class="spin"></span> Cargando...</td></tr>';
   document.getElementById('dash-chart').innerHTML = '';
 
   const [movRows, racRows] = await Promise.all([
@@ -2075,38 +2283,70 @@ async function cargarDashboard() {
   const pSem  = calcPeriodo(f => f >= semanaStr && f <= todayStr);
   const pMes  = calcPeriodo(f => f.substring(0,7) === mesActual);
 
-  // Actualizar métricas principales
+  // Calcular compras del mes (ENTRADA valorizada)
+  let comprasMes = 0;
+  if(movRows && movRows.length > 1) {
+    movRows.slice(1).forEach(r => {
+      const tipo = (r[1]||'').toString().trim().toUpperCase();
+      const f = String(r[0]).substring(0,7);
+      if(tipo === 'ENTRADA' && f === mesActual) {
+        comprasMes += parseFloat(r[6])||0;
+      }
+    });
+  }
+
+  // Calcular stock valorizado actual
+  const stockActualVal = {};
+  if(movRows && movRows.length > 1) {
+    movRows.slice(1).forEach(r => {
+      const ing = (r[2]||'').toString().trim().toUpperCase();
+      if(!ing) return;
+      const tipo = (r[1]||'').toString().trim().toUpperCase();
+      const cant = parseFloat(r[3])||0;
+      if(!stockActualVal[ing]) stockActualVal[ing] = 0;
+      if(['STOCK INICIAL','ENTRADA'].includes(tipo)) stockActualVal[ing] += cant;
+      else if(['SALIDA REAL','SALIDA PLAN','MERMA'].includes(tipo)) stockActualVal[ing] -= cant;
+      else if(tipo === 'AJUSTE') stockActualVal[ing] += cant;
+    });
+  }
+  let stockValorizado = 0;
+  Object.entries(stockActualVal).forEach(([ing, cant]) => {
+    if(cant > 0) {
+      const precio = preciosMaestro[ing] || 0;
+      stockValorizado += cant * precio;
+    }
+  });
+
+  // Cargar gastos del mes
+  let gastosMes = 0;
+  try {
+    const gastosRows = await gsGet('Gastos_GS');
+    if(gastosRows && gastosRows.length > 1) {
+      gastosRows.slice(1).forEach(r => {
+        const f = String(r[0]).substring(0,7);
+        if(f === mesActual) gastosMes += parseFloat(r[5])||0;
+      });
+    }
+  } catch(e) {}
+
+  // Actualizar métricas mes
   const fmt  = v => '$' + Math.round(v).toLocaleString('es-CL');
   const fmtN = v => Math.round(v).toLocaleString('es-CL');
   const fmtP = v => v > 0 ? v.toFixed(1)+'%' : '—';
 
-  document.getElementById('dash-rac-dia').textContent = fmtN(pDia.raciones) || '—';
-  document.getElementById('dash-vta-dia').textContent = pDia.venta>0 ? fmt(pDia.venta) : '—';
-  document.getElementById('dash-fc-dia').textContent = fmtP(pDia.fc);
+  document.getElementById('dash-rac-mes').textContent = fmtN(pMes.raciones) || '—';
+  document.getElementById('dash-vta-mes').textContent = pMes.venta>0 ? fmt(pMes.venta) : '—';
+  document.getElementById('dash-compras-mes').textContent = comprasMes>0 ? fmt(comprasMes) : '—';
+  document.getElementById('dash-costo-mes').textContent = pMes.costo>0 ? fmt(pMes.costo) : '—';
+  document.getElementById('dash-stock-val').textContent = stockValorizado>0 ? fmt(stockValorizado) : '—';
+  document.getElementById('dash-gastos-mes').textContent = gastosMes>0 ? fmt(gastosMes) : '—';
+  document.getElementById('dash-xrac-mes').textContent = pMes.xrac>0 ? fmt(pMes.xrac) : '—';
 
-  // Colorear food cost
-  const fcEl = document.getElementById('dash-fc-dia');
-  if(pDia.fc>0) fcEl.style.color = pDia.fc<30?'#2e7d32':pDia.fc<40?'#e65100':'#c62828';
+  const fcMesEl = document.getElementById('dash-fc-mes');
+  fcMesEl.textContent = fmtP(pMes.fc);
+  if(pMes.fc>0) fcMesEl.style.color = pMes.fc<30?'#2e7d32':pMes.fc<40?'#f57f17':'#c62828';
 
-  // Tabla períodos
-  const filas = [
-    {label:'Hoy', d:pDia},
-    {label:'Esta semana', d:pSem},
-    {label:'Este mes', d:pMes},
-  ];
-  dashTabla.innerHTML = filas.map((f,i) => {
-    const bg = i%2===0?'#fff':'#f5f5f7';
-    const fcColor = f.d.fc>40?'#c62828':f.d.fc>30?'#e65100':'#2e7d32';
-    return `<tr style="background:${bg}">
-      <td style="padding:8px;font-weight:600">${f.label}</td>
-      <td style="padding:8px;text-align:right">${fmtN(f.d.raciones)}</td>
-      <td style="padding:8px;text-align:right">${f.d.venta>0?fmt(f.d.venta):'—'}</td>
-      <td style="padding:8px;text-align:right">${f.d.costo>0?fmt(f.d.costo):'—'}</td>
-      <td style="padding:8px;text-align:right;font-weight:700;color:${fcColor}">${fmtP(f.d.fc)}</td>
-      <td style="padding:8px;text-align:right">${f.d.xrac>0?fmt(f.d.xrac):'—'}</td>
-    </tr>`;
-  }).join('');
-
+  // Tabla períodos (eliminada — solo gráfico)
   // Gráfico tendencia (barras SVG simples)
   const fechasMes = Object.keys(racionesPorFecha)
     .filter(f => f.substring(0,7)===mesActual)
@@ -2150,7 +2390,7 @@ async function cargarDashboard() {
   } else {
     document.getElementById('dash-chart').innerHTML = '<div style="color:#888;font-size:13px;padding:8px">Sin datos del mes actual.</div>';
   }
-}
+}  // fin cargarDashboard
 
 // ── INVENTARIO FÍSICO ────────────────────────────────────────────────────────
 let invStock = {}; // stock actual del sistema
@@ -2438,6 +2678,135 @@ async function aplicarInventario() {
 
   // Recargar inventario
   setTimeout(() => cargarInventario(), 2000);
+}
+
+// ── GASTOS GENERALES ─────────────────────────────────────────────────────────
+let gastosData = [];
+
+async function cargarGastos() {
+  const loading = document.getElementById('gasto-loading');
+  const wrap = document.getElementById('gasto-tabla-wrap');
+  const empty = document.getElementById('gasto-empty');
+  loading.style.display = 'block';
+  wrap.style.display = 'none';
+  empty.style.display = 'none';
+
+  // Fecha por defecto hoy
+  if(!document.getElementById('gasto-fecha').value) {
+    document.getElementById('gasto-fecha').value = new Date().toISOString().substring(0,10);
+  }
+
+  const rows = await gsGet('Gastos_GS');
+  gastosData = rows && rows.length > 1 ? rows.slice(1) : [];
+
+  // Poblar selector de meses
+  const meses = [...new Set(gastosData.map(r => String(r[0]).substring(0,7)).filter(Boolean))].sort().reverse();
+  const selMes = document.getElementById('gasto-filtro-mes');
+  const valMes = selMes.value;
+  selMes.innerHTML = '<option value="">Todos los meses</option>' + meses.map(m => `<option value="${m}" ${m===valMes?'selected':''}>${m}</option>`).join('');
+
+  renderGastos();
+  loading.style.display = 'none';
+}
+
+function renderGastos() {
+  const filtroMes = document.getElementById('gasto-filtro-mes').value;
+  const filtroFam = document.getElementById('gasto-filtro-familia').value;
+  const tbody = document.getElementById('gasto-tbody');
+  const wrap = document.getElementById('gasto-tabla-wrap');
+  const empty = document.getElementById('gasto-empty');
+
+  let filas = gastosData.filter(r => {
+    const f = String(r[0]).substring(0,7);
+    const fam = String(r[2]||'');
+    if(filtroMes && f !== filtroMes) return false;
+    if(filtroFam && fam !== filtroFam) return false;
+    return true;
+  }).sort((a,b) => String(b[0]).localeCompare(String(a[0])));
+
+  if(!filas.length) { wrap.style.display='none'; empty.style.display='block'; document.getElementById('gasto-total-label').textContent='$0'; return; }
+
+  let total = 0;
+  tbody.innerHTML = filas.map((r, i) => {
+    const monto = parseFloat(r[5])||0;
+    total += monto;
+    const bg = i%2===0?'#fff':'#f5f5f7';
+    const fecha = String(r[0]).substring(0,10);
+    return `<tr style="background:${bg}">
+      <td style="padding:7px 8px">${fecha}</td>
+      <td style="padding:7px 8px"><span style="background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600">${r[2]||''}</span></td>
+      <td style="padding:7px 8px">${r[3]||''}</td>
+      <td style="padding:7px 8px">${r[4]||''}</td>
+      <td style="padding:7px 8px">${r[1]||''}</td>
+      <td style="padding:7px 8px;text-align:right;font-weight:600">$${Math.round(monto).toLocaleString('es-CL')}</td>
+      <td style="padding:7px 8px;color:#888">${r[6]||''}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('gasto-total-label').textContent = '$' + Math.round(total).toLocaleString('es-CL');
+  wrap.style.display = 'block';
+  empty.style.display = 'none';
+}
+
+async function registrarGasto() {
+  const fecha = document.getElementById('gasto-fecha').value;
+  const desc = document.getElementById('gasto-desc').value.trim();
+  const familia = document.getElementById('gasto-familia').value;
+  const tipoDoc = document.getElementById('gasto-tipo-doc').value;
+  const folio = document.getElementById('gasto-folio').value.trim();
+  const monto = parseFloat(document.getElementById('gasto-monto').value)||0;
+  const u = document.getElementById('gasto-usuario').value || getUsuario();
+
+  const okEl = document.getElementById('gasto-ok');
+  const errEl = document.getElementById('gasto-err');
+  okEl.style.display='none'; errEl.style.display='none';
+
+  if(!fecha) { errEl.style.display='block'; errEl.textContent='Selecciona una fecha.'; return; }
+  if(!familia) { errEl.style.display='block'; errEl.textContent='Selecciona una familia de gasto.'; return; }
+  if(!monto || monto<=0) { errEl.style.display='block'; errEl.textContent='Ingresa un monto válido.'; return; }
+  if(!desc) { errEl.style.display='block'; errEl.textContent='Ingresa una descripción.'; return; }
+
+  // [fecha, descripcion, familia, tipo_doc, folio, monto, usuario]
+  const r = await gsPost('Gastos_GS', [fecha, desc, familia, tipoDoc, folio, monto, u]);
+  if(r && r.ok) {
+    okEl.style.display='block';
+    okEl.textContent=`✓ Gasto registrado: ${familia} — $${monto.toLocaleString('es-CL')}`;
+    // Limpiar formulario
+    ['gasto-desc','gasto-folio','gasto-monto'].forEach(id => document.getElementById(id).value='');
+    document.getElementById('gasto-familia').value='';
+    document.getElementById('gasto-tipo-doc').value='';
+    setTimeout(()=>{ okEl.style.display='none'; cargarGastos(); }, 2500);
+  } else {
+    errEl.style.display='block';
+    errEl.textContent='Error al registrar. Intenta de nuevo.';
+  }
+}
+
+async function exportarGastos() {
+  const filtroMes = document.getElementById('gasto-filtro-mes').value;
+  const filtroFam = document.getElementById('gasto-filtro-familia').value;
+
+  let filas = gastosData.filter(r => {
+    if(filtroMes && String(r[0]).substring(0,7) !== filtroMes) return false;
+    if(filtroFam && String(r[2]||'') !== filtroFam) return false;
+    return true;
+  }).sort((a,b) => String(a[0]).localeCompare(String(b[0])));
+
+  const encabezado = ['Fecha','Descripción','Familia','Tipo Documento','Folio','Monto','Responsable'];
+  const rows = [encabezado, ...filas.map(r => [
+    String(r[0]).substring(0,10), r[1]||'', r[2]||'', r[3]||'', r[4]||'',
+    parseFloat(r[5])||0, r[6]||''
+  ])];
+
+  // Convertir a CSV con BOM para Excel
+  const bom = '﻿';
+  const csv = bom + rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const periodo = filtroMes || 'todos';
+  a.href = url; a.download = `Gastos_SH_${periodo}.csv`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function showTab(id, el) {
