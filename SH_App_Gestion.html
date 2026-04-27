@@ -1422,8 +1422,14 @@ async function regConsumo() {
     registrados++;
     cok.textContent = `Registrando ${registrados}/${conReal.length}... (${row.ing})`;
     const real = parseFloat(row.real);
+    // Buscar precio en maestroPrecios
+    const ingKey = row.ing.trim().toUpperCase();
+    const canonKey = getCanon(row.ing).toUpperCase();
+    const precioInfo = maestroPrecios[ingKey] || maestroPrecios[canonKey];
+    const precioUnit = (precioInfo && precioInfo.precio > 0) ? Math.round(precioInfo.precio) : '';
+    const totalLinea = (precioInfo && precioInfo.precio > 0) ? Math.round(real * precioInfo.precio) : '';
     await gsPost('Movimientos', [fecha, 'SALIDA REAL', row.ing,
-      real.toFixed(3), 'Kg', '', '', 'PROD-REAL', 'Cocina', u,
+      real.toFixed(3), 'Kg', precioUnit, totalLinea, 'PROD-REAL', 'Cocina', u,
       `${row.prep||''} — ${obs||''}`]);
     await gsPost('Produccion_Diaria', [fecha, '', row.prep||'', row.raciones||'', '',
       row.ing, row.plan.toFixed(3), real.toFixed(3),
