@@ -1090,10 +1090,11 @@ async function cargarDia() {
   // Construir mapa de lo ya registrado: ingrediente -> {cant, prep}
   const yaRegistrado = {};
   registradosDia.forEach(r => {
-    const ing = (r[2]||'').toString().trim().toUpperCase();
+    const ingNombre = (r[2]||'').toString().trim();
+    const ing = ingNombre.toUpperCase();
     const cant = parseFloat(r[3])||0;
     const prep = (r[10]||'').toString().split('—')[0].trim();
-    if(!yaRegistrado[ing]) yaRegistrado[ing] = { cant: 0, prep };
+    if(!yaRegistrado[ing]) yaRegistrado[ing] = { cant: 0, prep, nombre: ingNombre };
     yaRegistrado[ing].cant += cant;
   });
   const tieneRegistros = registradosDia.length > 0;
@@ -1139,7 +1140,7 @@ async function cargarDia() {
     if(!yaEnPlan) {
       filasExtra.push({
         prep: info.prep,
-        ing: ingKey,
+        ing: info.nombre || ingKey,
         plan: 0,
         real: info.cant.toFixed(3),
         yaRegistrado: true,
@@ -1189,11 +1190,15 @@ async function cargarDia() {
     return;
   }
 
-  const totalIng = ingredientesDia.length + filasExtra.length;
-  const regCount = ingredientesDia.filter(r => r.yaRegistrado).length + filasExtra.filter(r => r.yaRegistrado).length;
+  const todoIng = [...ingredientesDia, ...filasExtra];
+  const regCount = todoIng.filter(r => r.yaRegistrado).length;
+  // Pendientes = tienen plan > 0 y NO están registrados
+  const pendientesCount = todoIng.filter(r => !r.yaRegistrado && (r.plan > 0 || r.manual)).length;
   document.getElementById('ctitulo').textContent = `Consumos ${formatFechaDisplay(fecha)}`;
   document.getElementById('cbadge').textContent = tieneRegistros
-    ? `${regCount} registrados · ${totalIng - regCount} pendientes`
+    ? (pendientesCount > 0
+        ? `${regCount} registrados · ${pendientesCount} pendientes`
+        : `✓ ${regCount} ingredientes registrados`)
     : `${ingredientesDia.length} ingredientes planificados`;
   document.getElementById('ctable-wrap').style.display = 'block';
   renderC();
