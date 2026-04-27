@@ -343,7 +343,10 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <div class="card" id="ccard">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
       <strong id="ctitulo">Selecciona una fecha</strong>
-      <span id="cbadge" class="badge bi"></span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div id="cestado" style="display:none;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700"></div>
+        <span id="cbadge" class="badge bi"></span>
+      </div>
     </div>
     <div id="cloading" style="display:none;font-size:13px;color:#888;padding:8px 0">
       <span class="spin"></span>Cargando ingredientes del día...
@@ -1074,9 +1077,28 @@ async function cargarDia() {
   document.getElementById('cempty').style.display = 'none';
   document.getElementById('ctable-wrap').style.display = 'none';
   document.getElementById('ctbody').innerHTML = '';
+  document.getElementById('cestado').style.display = 'none';
   filasExtra = [];
 
-  // Verificar si hay borrador guardado para esta fecha
+  // Cargar movimientos del día para detectar estado
+  const movRows = await gsGet('Movimientos');
+  const registradosDia = movRows ? movRows.slice(1).filter(r =>
+    String(r[0]).substring(0,10) === fecha &&
+    (r[1]||'').toString().trim().toUpperCase() === 'SALIDA REAL'
+  ) : [];
+
+  // Construir mapa de lo ya registrado: ingrediente -> {cant, prep}
+  const yaRegistrado = {};
+  registradosDia.forEach(r => {
+    const ing = (r[2]||'').toString().trim().toUpperCase();
+    const cant = parseFloat(r[3])||0;
+    const prep = (r[10]||'').toString().split('—')[0].trim();
+    if(!yaRegistrado[ing]) yaRegistrado[ing] = { cant: 0, prep };
+    yaRegistrado[ing].cant += cant;
+  });
+  const tieneRegistros = registradosDia.length > 0;
+
+  // Verificar borrador
   let borradorFecha = null;
   let borradorUsuario = '';
   try {
@@ -1095,6 +1117,8 @@ async function cargarDia() {
     .filter(r => r.fecha === fecha && r.ingrediente)
     .map(r => {
       const ingNorm = normalizarIng(r.ingrediente);
+      const ingKey = ingNorm.toUpperCase();
+      const regInfo = yaRegistrado[ingKey];
       return {
         prep: r.prep,
         ing: ingNorm,
@@ -1103,18 +1127,53 @@ async function cargarDia() {
         racActual: r.raciones,
         gxr: r.raciones > 0 ? r.crudoTotal / r.raciones : 0,
         plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
-        real: (r.crudoTotal / 1000).toFixed(3)
+        real: regInfo ? regInfo.cant.toFixed(3) : (r.crudoTotal / 1000).toFixed(3),
+        yaRegistrado: !!regInfo,
+        cantRegistrada: regInfo ? regInfo.cant : null
       };
     });
 
-  // Aplicar borrador si existe
+  // Agregar registros extras que no estaban en el plan
+  Object.entries(yaRegistrado).forEach(([ingKey, info]) => {
+    const yaEnPlan = ingredientesDia.find(r => r.ing.toUpperCase() === ingKey);
+    if(!yaEnPlan) {
+      filasExtra.push({
+        prep: info.prep,
+        ing: ingKey,
+        plan: 0,
+        real: info.cant.toFixed(3),
+        yaRegistrado: true,
+        cantRegistrada: info.cant,
+        manual: true
+      });
+    }
+  });
+
+  // Indicador de estado
+  const estadoEl = document.getElementById('cestado');
+  estadoEl.style.display = 'inline-block';
+  if(tieneRegistros && borradorFecha) {
+    estadoEl.textContent = '⚠ Parcial — hay borrador pendiente';
+    estadoEl.style.background = '#fff3e0'; estadoEl.style.color = '#e65100';
+  } else if(tieneRegistros) {
+    estadoEl.textContent = '✅ Registrado';
+    estadoEl.style.background = '#e8f5e9'; estadoEl.style.color = '#2e7d32';
+  } else if(borradorFecha) {
+    estadoEl.textContent = '📋 Borrador guardado';
+    estadoEl.style.background = '#fff3e0'; estadoEl.style.color = '#e65100';
+  } else {
+    estadoEl.textContent = '⬜ Sin registrar';
+    estadoEl.style.background = '#f5f5f5'; estadoEl.style.color = '#888';
+  }
+
+  // Aplicar borrador encima si existe (solo los no registrados)
   if(borradorFecha) {
     const avisoEl = document.getElementById('cborrador-aviso');
     avisoEl.style.display = 'block';
     avisoEl.textContent = `📋 Borrador cargado. Guardado por ${borradorUsuario||'usuario desconocido'}.`;
     borradorFecha.forEach(br => {
       const idx = ingredientesDia.findIndex(r => r.ing.toUpperCase() === String(br[1]).toUpperCase());
-      if(idx >= 0) ingredientesDia[idx].real = br[2];
+      if(idx >= 0 && !ingredientesDia[idx].yaRegistrado) ingredientesDia[idx].real = br[2];
     });
   } else {
     document.getElementById('cborrador-aviso').style.display = 'none';
@@ -1122,7 +1181,7 @@ async function cargarDia() {
 
   document.getElementById('cloading').style.display = 'none';
 
-  if(ingredientesDia.length === 0) {
+  if(ingredientesDia.length === 0 && filasExtra.length === 0) {
     document.getElementById('cempty').style.display = 'block';
     document.getElementById('cempty').textContent = 'No hay ingredientes planificados para esta fecha.';
     document.getElementById('ctitulo').textContent = formatFechaDisplay(fecha);
@@ -1130,8 +1189,12 @@ async function cargarDia() {
     return;
   }
 
+  const totalIng = ingredientesDia.length + filasExtra.length;
+  const regCount = ingredientesDia.filter(r => r.yaRegistrado).length + filasExtra.filter(r => r.yaRegistrado).length;
   document.getElementById('ctitulo').textContent = `Consumos ${formatFechaDisplay(fecha)}`;
-  document.getElementById('cbadge').textContent = `${ingredientesDia.length} ingredientes planificados`;
+  document.getElementById('cbadge').textContent = tieneRegistros
+    ? `${regCount} registrados · ${totalIng - regCount} pendientes`
+    : `${ingredientesDia.length} ingredientes planificados`;
   document.getElementById('ctable-wrap').style.display = 'block';
   renderC();
 }
@@ -1295,7 +1358,17 @@ async function regConsumo() {
   if(!fecha) { alert('Selecciona una fecha.'); return; }
   const obs = document.getElementById('cobs').value;
   const todo = [...ingredientesDia, ...filasExtra];
-  const conReal = todo.filter(r => r.real !== '' && parseFloat(r.real) > 0);
+  // Solo registrar los NO registrados o los que tienen diferencia respecto a lo registrado
+  const conReal = todo.filter(r => {
+    if(!r.real || parseFloat(r.real) === 0) return false;
+    // Si ya estaba registrado, solo incluir si el valor fue modificado manualmente
+    if(r.yaRegistrado) {
+      const cantReg = parseFloat(r.cantRegistrada)||0;
+      const cantNueva = parseFloat(r.real)||0;
+      return Math.abs(cantNueva - cantReg) > 0.001; // hay diferencia = nuevo ingreso adicional
+    }
+    return true;
+  });
 
   const btn = document.querySelector('#tab-consumo .btn.btnb');
   const cok = document.getElementById('cok');
@@ -1357,11 +1430,14 @@ async function regConsumo() {
       (real - row.plan).toFixed(3), u, obs||'']);
   }
 
+  const esAdicional = ingredientesDia.some(r => r.yaRegistrado);
   cok.style.background = '#e8f5e9';
   cok.style.color = '#1b5e20';
   cok.textContent = conReal.length > 0
-    ? `✓ ${conReal.length} consumos registrados correctamente.`
-    : '✓ Sin consumos ingresados.';
+    ? (esAdicional
+        ? `✓ ${conReal.length} ingrediente(s) adicionales registrados correctamente.`
+        : `✓ ${conReal.length} consumos registrados correctamente.`)
+    : '✓ Sin consumos nuevos que registrar.';
   if(btn) { btn.disabled = false; }
   await cargarMovimientos();
 }
