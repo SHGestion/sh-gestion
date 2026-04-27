@@ -1417,12 +1417,30 @@ async function regConsumo() {
     return;
   }
 
+  // Recargar Maestro_Precios fresco desde Sheets antes de registrar
+  // (para capturar precios ingresados en otras sesiones o dispositivos)
+  try {
+    const maestroFresh = await gsGet('Maestro_Precios');
+    if(maestroFresh && maestroFresh.length > 1) {
+      maestroFresh.slice(1).forEach(r => {
+        if(r[0]) {
+          const k = r[0].toString().trim().toUpperCase();
+          const p = parseFloat(r[2])||0;
+          if(p > 0) {
+            if(maestroPrecios[k]) maestroPrecios[k].precio = p;
+            else maestroPrecios[k] = {nombre: r[0], um: r[1]||'Kg', precio: p, proveedor: r[3]||''};
+          }
+        }
+      });
+    }
+  } catch(e) { console.warn('No se pudo recargar maestro:', e); }
+
   let registrados = 0;
   for(const row of conReal) {
     registrados++;
     cok.textContent = `Registrando ${registrados}/${conReal.length}... (${row.ing})`;
     const real = parseFloat(row.real);
-    // Buscar precio en maestroPrecios
+    // Buscar precio en maestroPrecios (ya recargado fresco)
     const ingKey = row.ing.trim().toUpperCase();
     const canonKey = getCanon(row.ing).toUpperCase();
     const precioInfo = maestroPrecios[ingKey] || maestroPrecios[canonKey];
@@ -1792,6 +1810,90 @@ async function registrarFactura() {
     }
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
     await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+
+    // ── Actualizar Maestro_Precios y completar SALIDAS REALES sin precio ──────
+    btn.textContent = 'Actualizando precios...';
+    try {
+      // Construir mapa de precios de esta factura: ingrediente -> precio/kg con IVA
+      const preciosFactura = {};
+      itemsF.forEach(it => {
+        const factor = getKgFactor(it.desc, it.umEdit||it.um);
+        const pxkg = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+        const nombre = (it.mapeo||it.desc).trim().toUpperCase();
+        preciosFactura[nombre] = Math.round(pxkg);
+      });
+
+      // Leer Maestro_Precios
+      const maestroRows = await gsGet('Maestro_Precios');
+      const encMaestro = maestroRows[0];
+      let maestroActualizado = false;
+      const nuevoMaestro = maestroRows.map((r, idx) => {
+        if(idx === 0) return r;
+        const fila = [...r];
+        const nombre = (fila[0]||'').toString().trim().toUpperCase();
+        const precioNuevo = preciosFactura[nombre];
+        const precioActual = parseFloat(fila[2])||0;
+        if(precioNuevo && precioNuevo > 0) {
+          // Actualizar si no tiene precio o el nuevo difiere más de 2%
+          const difPct = precioActual > 0 ? Math.abs(precioNuevo - precioActual) / precioActual : 1;
+          if(precioActual === 0 || difPct > 0.02) {
+            fila[2] = precioNuevo;
+            // Actualizar también en maestroPrecios en memoria
+            if(maestroPrecios[nombre]) maestroPrecios[nombre].precio = precioNuevo;
+            else maestroPrecios[nombre] = {nombre: fila[0], um: fila[1]||'Kg', precio: precioNuevo, proveedor: prov};
+            maestroActualizado = true;
+          }
+        }
+        return fila;
+      });
+
+      if(maestroActualizado) {
+        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({accion:'clear', hoja:'Maestro_Precios'})});
+        await gsPost('Maestro_Precios', encMaestro);
+        for(let i=1; i<nuevoMaestro.length; i+=50) {
+          await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({accion:'batch', hoja:'Maestro_Precios', filas: nuevoMaestro.slice(i,i+50)})});
+        }
+      }
+
+      // Completar SALIDAS REALES sin precio usando el maestroPrecios actualizado
+      btn.textContent = 'Completando salidas sin precio...';
+      const movRows = await gsGet('Movimientos');
+      const encMov = movRows[0];
+      let movActualizado = 0;
+      const nuevosMov = movRows.map((r, idx) => {
+        if(idx === 0) return r;
+        const fila = [...r];
+        const tipo = (fila[1]||'').toString().trim().toUpperCase();
+        if(tipo !== 'SALIDA REAL') return fila;
+        const precioActual = fila[5] ? parseFloat(String(fila[5]).replace(',','')) : 0;
+        const cant = parseFloat(fila[3])||0;
+        if(precioActual > 0 || cant === 0) return fila; // ya tiene precio
+        const nombre = (fila[2]||'').toString().trim().toUpperCase();
+        const infoMaestro = maestroPrecios[nombre];
+        const precio = infoMaestro ? infoMaestro.precio : 0;
+        if(precio > 0) {
+          fila[5] = precio;
+          fila[6] = Math.round(cant * precio);
+          movActualizado++;
+        }
+        return fila;
+      });
+
+      if(movActualizado > 0) {
+        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({accion:'clear', hoja:'Movimientos'})});
+        await gsPost('Movimientos', encMov);
+        for(let i=1; i<nuevosMov.length; i+=50) {
+          await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({accion:'batch', hoja:'Movimientos', filas: nuevosMov.slice(i,i+50)})});
+        }
+      }
+    } catch(ePrecio) {
+      console.warn('Error actualizando precios:', ePrecio);
+      // No es crítico — la factura ya quedó registrada
+    }
     // Guardar proveedor nuevo si no estaba en la lista
     if(prov && ![...document.getElementById('fprov-list').options].map(o=>o.value).includes(prov)) {
       await gsPost('Proveedores_GS', [prov]);
