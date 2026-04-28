@@ -2726,27 +2726,76 @@ function calcDiff(i) {
 function buscarIngredienteInv(q) {
   const sug = document.getElementById('inv-sugerencias');
   if(!q || q.length < 2) { sug.style.display='none'; return; }
-  const res = invTodosIng.filter(i => i.toUpperCase().includes(q.toUpperCase())).slice(0,8);
-  if(!res.length) { sug.style.display='none'; return; }
+  const res = invTodosIng.filter(i => i.toUpperCase().includes(q.toUpperCase())).slice(0,10);
   sug.style.display = 'block';
-  sug.innerHTML = res.map(r => `<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0"
-    onclick="seleccionarIngredienteInv('${r.replace(/'/g,"\\'")}')">
-    ${r} ${invStock[r.toUpperCase()]&&invStock[r.toUpperCase()].cant>0?'<span style=\"color:#2e7d32;font-size:11px\">en stock</span>':''}
-  </div>`).join('');
+  let html = '';
+  if(res.length) {
+    html = res.map(r => {
+      const enStock = invStock[r.toUpperCase()] && invStock[r.toUpperCase()].cant > 0;
+      const yaEnLista = !!invIngredientes.find(i => i.nombre.toUpperCase() === r.toUpperCase());
+      const color = yaEnLista ? '#aaa' : '#222';
+      const badge = enStock
+        ? '<span style="font-size:10px;background:#c8e6c9;color:#2e7d32;padding:1px 6px;border-radius:8px;margin-left:6px">en stock</span>'
+        : '<span style="font-size:10px;color:#aaa;margin-left:6px">stock 0</span>';
+      const yaBadge = yaEnLista ? '<span style="font-size:10px;color:#aaa;margin-left:4px">· ya en lista</span>' : '';
+      return `<div style="padding:9px 12px;cursor:${yaEnLista?'default':'pointer'};border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;opacity:${yaEnLista?'0.5':'1'}"
+        onclick="${yaEnLista?'':` seleccionarIngredienteInv('${r.replace(/'/g,"\\'")}') `}">
+        <span style="color:${color}">${r}</span>
+        <span>${badge}${yaBadge}</span>
+      </div>`;
+    }).join('');
+  }
+  // Opción crear nuevo si no hay match exacto con lo escrito
+  const exacto = invTodosIng.find(i => i.toUpperCase() === q.toUpperCase());
+  if(!exacto) {
+    html += `<div style="padding:9px 12px;cursor:pointer;background:#fff8e1;border-top:2px solid #ffd54f;color:#e65100;font-weight:600;display:flex;align-items:center;gap:8px"
+      onclick="crearIngredienteNuevo('${q.replace(/'/g,"\\'")}')">
+      <span style="font-size:16px">➕</span>
+      <span>Crear nuevo: <strong>${q}</strong></span>
+    </div>`;
+  }
+  sug.innerHTML = html;
 }
 
 function seleccionarIngredienteInv(nombre) {
   document.getElementById('inv-buscar').value = nombre;
   document.getElementById('inv-sugerencias').style.display = 'none';
   invIngSeleccionado = nombre;
+  // Agregar directamente al hacer clic en sugerencia
+  agregarIngredienteInv();
+}
+
+function crearIngredienteNuevo(nombre) {
+  document.getElementById('inv-sugerencias').style.display = 'none';
+  document.getElementById('inv-buscar').value = nombre;
+  invIngSeleccionado = nombre;
+  // Agregar al inventario como ingrediente nuevo (stock 0, no existe en Maestro)
+  if(invIngredientes.find(i => i.nombre.toUpperCase() === nombre.toUpperCase())) {
+    document.getElementById('inv-buscar').value = '';
+    invIngSeleccionado = null;
+    return;
+  }
+  invTodosIng.push(nombre); // agregarlo al listado para futuras búsquedas
+  invIngredientes.push({ nombre: nombre, cant: 0, um: 'Kg', esNuevo: true });
+  invIngredientes.sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
+  renderTablaInventario();
+  document.getElementById('inv-buscar').value = '';
+  invIngSeleccionado = null;
+  // Mostrar aviso
+  const aviso = document.getElementById('inv-borrador-aviso');
+  if(aviso) {
+    aviso.style.display = 'block';
+    aviso.textContent = `➕ "${nombre}" agregado como nuevo ingrediente. Al aplicar ajustes se creará en el Maestro_Precios.`;
+    setTimeout(() => { aviso.style.display = 'none'; }, 4000);
+  }
 }
 
 function agregarIngredienteInv() {
   const nombre = invIngSeleccionado || document.getElementById('inv-buscar').value.trim();
   if(!nombre) return;
-  // Verificar que no esté ya en la lista
   if(invIngredientes.find(i => i.nombre.toUpperCase() === nombre.toUpperCase())) {
-    alert('Este ingrediente ya está en la lista.');
+    document.getElementById('inv-buscar').value = '';
+    invIngSeleccionado = null;
     return;
   }
   const stockExistente = invStock[nombre.toUpperCase()];
@@ -2852,6 +2901,17 @@ async function aplicarInventario() {
   okEl.style.display = 'none';
   errEl.style.display = 'none';
 
+  // Crear ingredientes nuevos en Maestro_Precios si los hay
+  const nuevos = invIngredientes.filter(i => i.esNuevo);
+  if(nuevos.length > 0) {
+    for(const ing of nuevos) {
+      await gsPost('Maestro_Precios', [ing.nombre, ing.um || 'Kg', 0, 'Nuevo-Inventario', '']);
+      // También agregar al maestroPrecios en memoria
+      maestroPrecios[ing.nombre.toUpperCase()] = {nombre: ing.nombre, um: ing.um||'Kg', precio: 0, proveedor: 'Nuevo'};
+      invTodosIng.push(ing.nombre);
+    }
+  }
+
   let aplicados = 0;
   for(const aj of ajustes) {
     const r = await gsPost('Movimientos', [
@@ -2863,7 +2923,7 @@ async function aplicarInventario() {
   }
 
   okEl.style.display = 'block';
-  okEl.textContent = `✓ ${aplicados} ajuste(s) aplicados correctamente. El food cost del ${fecha} se actualizará automáticamente.`;
+  okEl.textContent = `✓ ${aplicados} ajuste(s) aplicados.${nuevos.length>0?' '+nuevos.length+' ingrediente(s) nuevo(s) creado(s) en Maestro_Precios.':''} El food cost del ${fecha} se actualizará automáticamente.`;
 
   // Recargar inventario
   setTimeout(() => cargarInventario(), 2000);
