@@ -1423,7 +1423,6 @@ async function regConsumo() {
   }
 
   // Recargar Maestro_Precios fresco desde Sheets antes de registrar
-  // (para capturar precios ingresados en otras sesiones o dispositivos)
   try {
     const maestroFresh = await gsGet('Maestro_Precios');
     if(maestroFresh && maestroFresh.length > 1) {
@@ -1440,17 +1439,84 @@ async function regConsumo() {
     }
   } catch(e) { console.warn('No se pudo recargar maestro:', e); }
 
+  // Construir mapa de precios desde ENTRADAs de Movimientos como respaldo
+  // Esto captura precios de facturas ingresadas que aún no llegaron al Maestro
+  const preciosEntrada = {};
+  try {
+    const movFresh = await gsGet('Movimientos');
+    if(movFresh && movFresh.length > 1) {
+      movFresh.slice(1).forEach(r => {
+        const tipo = (r[1]||'').toString().trim().toUpperCase();
+        if(tipo === 'ENTRADA') {
+          const ing = (r[2]||'').toString().trim().toUpperCase();
+          const precio = parseFloat(String(r[5]||'').replace(',',''))||0;
+          if(ing && precio > 0) {
+            // Tomar el precio más reciente (último registro)
+            preciosEntrada[ing] = precio;
+          }
+        }
+      });
+    }
+  } catch(e) { console.warn('No se pudo cargar ENTRADAs:', e); }
+
+  function buscarPrecioCompleto(nombreIng) {
+    const k = nombreIng.trim().toUpperCase();
+    const canon = getCanon(nombreIng).toUpperCase();
+    // 1. Maestro_Precios (fuente principal)
+    const infoMaestro = maestroPrecios[k] || maestroPrecios[canon];
+    if(infoMaestro && infoMaestro.precio > 0) return infoMaestro.precio;
+    // 2. ENTRADAs de Movimientos (respaldo automático)
+    if(preciosEntrada[k] && preciosEntrada[k] > 0) return preciosEntrada[k];
+    if(preciosEntrada[canon] && preciosEntrada[canon] > 0) return preciosEntrada[canon];
+    // 3. Sin P.E. o C/RESOLUCION
+    const limpio = k.replace(/ P\.E\.?/g,'').replace(/ C\/RESOLUCI[OÓ]N/g,'').trim();
+    if(preciosEntrada[limpio] && preciosEntrada[limpio] > 0) return preciosEntrada[limpio];
+    if(maestroPrecios[limpio] && maestroPrecios[limpio].precio > 0) return maestroPrecios[limpio].precio;
+    return 0;
+  }
+
+  // Actualizar Maestro_Precios con precios de ENTRADAs que falten
+  // (para que futuras sesiones los encuentren sin depender de Movimientos)
+  const actualizarMaestro = [];
+  Object.entries(preciosEntrada).forEach(([ing, precio]) => {
+    const infoActual = maestroPrecios[ing];
+    if(!infoActual || infoActual.precio === 0) {
+      actualizarMaestro.push({ing, precio});
+    }
+  });
+  if(actualizarMaestro.length > 0) {
+    try {
+      const maestroRows = await gsGet('Maestro_Precios');
+      const enc = maestroRows[0];
+      const filas = maestroRows.slice(1).map(r => {
+        const fila = [...r];
+        const k = (fila[0]||'').toString().trim().toUpperCase();
+        const match = actualizarMaestro.find(a => a.ing === k);
+        if(match && (parseFloat(fila[2])||0) === 0) {
+          fila[2] = match.precio;
+          if(maestroPrecios[k]) maestroPrecios[k].precio = match.precio;
+        }
+        return fila;
+      });
+      await fetch(API, {method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({accion:'clear',hoja:'Maestro_Precios'})});
+      await gsPost('Maestro_Precios', enc);
+      for(let i=0;i<filas.length;i+=50) {
+        await fetch(API, {method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({accion:'batch',hoja:'Maestro_Precios',filas:filas.slice(i,i+50)})});
+      }
+    } catch(e) { console.warn('Error actualizando Maestro:', e); }
+  }
+
   let registrados = 0;
   for(const row of conReal) {
     registrados++;
     cok.textContent = `Registrando ${registrados}/${conReal.length}... (${row.ing})`;
     const real = parseFloat(row.real);
-    // Buscar precio en maestroPrecios (ya recargado fresco)
-    const ingKey = row.ing.trim().toUpperCase();
-    const canonKey = getCanon(row.ing).toUpperCase();
-    const precioInfo = maestroPrecios[ingKey] || maestroPrecios[canonKey];
-    const precioUnit = (precioInfo && precioInfo.precio > 0) ? Math.round(precioInfo.precio) : '';
-    const totalLinea = (precioInfo && precioInfo.precio > 0) ? Math.round(real * precioInfo.precio) : '';
+    // Buscar precio usando función completa (Maestro + ENTRADAs)
+    const precio = buscarPrecioCompleto(row.ing);
+    const precioUnit = precio > 0 ? Math.round(precio) : '';
+    const totalLinea = precio > 0 ? Math.round(real * precio) : '';
     await gsPost('Movimientos', [fecha, 'SALIDA REAL', row.ing,
       real.toFixed(3), 'Kg', precioUnit, totalLinea, 'PROD-REAL', 'Cocina', u,
       `${row.prep||''} — ${obs||''}`]);
@@ -2659,6 +2725,15 @@ async function cargarInventario() {
 
 function renderTablaInventario() {
   const tbody = document.getElementById('inv-tbody');
+
+  // Guardar valores actuales de inputs antes de limpiar DOM
+  invIngredientes.forEach((ing, i) => {
+    const inp = document.getElementById(`inv-fis-${i}`);
+    if(inp && inp.value !== '') {
+      invIngredientes[i]._valorFisico = inp.value;
+    }
+  });
+
   tbody.innerHTML = '';
 
   // Orden de familias
@@ -2702,12 +2777,17 @@ function renderTablaInventario() {
         <td style="padding:8px;text-align:center;color:#888">${ing.um}</td>
         <td style="padding:8px;text-align:right" class="no-print">
           <input type="number" id="inv-fis-${i}" placeholder="0.000" min="0" step="0.001"
-            oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right">
+            oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right"
+            value="${ing._valorFisico !== undefined ? ing._valorFisico : ''}">
         </td>
         <td id="inv-diff-${i}" style="padding:8px;text-align:right" class="no-print">—</td>
         <td style="padding:8px;border-bottom:1px solid #f0f0f0;text-align:right" class="print-only">________________</td>`;
       tbody.appendChild(tr);
       rowIdx++;
+      // Recalcular diferencia si hay valor guardado
+      if(ing._valorFisico !== undefined) {
+        setTimeout(() => calcDiff(i), 0);
+      }
     });
   });
 }
@@ -2844,8 +2924,11 @@ async function guardarBorradorInventario() {
   const filas = [];
   invIngredientes.forEach((ing, i) => {
     const fisEl = document.getElementById(`inv-fis-${i}`);
-    if(fisEl && fisEl.value !== '') {
-      filas.push([fecha, ing.nombre, fisEl.value, ing.cant.toFixed(3), ing.um]);
+    const valor = (fisEl && fisEl.value !== '') ? fisEl.value : (ing._valorFisico !== undefined ? String(ing._valorFisico) : '');
+    if(valor !== '') {
+      // Actualizar _valorFisico para consistencia
+      invIngredientes[i]._valorFisico = valor;
+      filas.push([fecha, ing.nombre, valor, ing.cant.toFixed(3), ing.um]);
     }
   });
   await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
@@ -2870,8 +2953,10 @@ async function aplicarInventario() {
 
   invIngredientes.forEach((ing, i) => {
     const fisEl = document.getElementById(`inv-fis-${i}`);
-    if(!fisEl || fisEl.value === '') return;
-    const fis = parseFloat(fisEl.value);
+    // Considerar tanto el input DOM como el valor guardado en _valorFisico
+    const valorStr = (fisEl && fisEl.value !== '') ? fisEl.value : (ing._valorFisico !== undefined ? ing._valorFisico : '');
+    if(valorStr === '') return;
+    const fis = parseFloat(valorStr);
     if(isNaN(fis)) return;
     const diff = fis - ing.cant;
     if(Math.abs(diff) < 0.001) return; // sin diferencia
