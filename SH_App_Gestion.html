@@ -2723,20 +2723,26 @@ async function cargarInventario() {
   document.getElementById('inv-tabla-wrap').style.display = 'block';
 }
 
+function invGetKey(nombre) {
+  return nombre.trim().toUpperCase().replace(/\s+/g,'_');
+}
+
 function renderTablaInventario() {
   const tbody = document.getElementById('inv-tbody');
 
-  // Guardar valores actuales de inputs antes de limpiar DOM
-  invIngredientes.forEach((ing, i) => {
-    const inp = document.getElementById(`inv-fis-${i}`);
-    if(inp && inp.value !== '') {
-      invIngredientes[i]._valorFisico = inp.value;
+  // Guardar valores actuales de inputs usando NOMBRE como clave (no índice)
+  document.querySelectorAll('[id^="inv-fis-"]').forEach(inp => {
+    if(inp.value !== '') {
+      const key = inp.getAttribute('data-invkey');
+      if(key) {
+        const idx = invIngredientes.findIndex(r => invGetKey(r.nombre) === key);
+        if(idx >= 0) invIngredientes[idx]._valorFisico = inp.value;
+      }
     }
   });
 
   tbody.innerHTML = '';
 
-  // Orden de familias
   const ORDEN_FAMILIAS = [
     'VACUNO','AVE','CERDO','PESCADOS Y MARISCOS',
     'VERDURAS DE HOJA','TUBÉRCULOS','VERDURAS','CEBOLLAS Y ALIÁCEOS',
@@ -2746,7 +2752,6 @@ function renderTablaInventario() {
     'ABARROTES','DESECHABLES','SIN FAMILIA'
   ];
 
-  // Agrupar ingredientes por familia
   const grupos = {};
   ORDEN_FAMILIAS.forEach(f => grupos[f] = []);
 
@@ -2761,47 +2766,58 @@ function renderTablaInventario() {
     const items = grupos[familia];
     if(!items || !items.length) return;
 
-    // Fila de encabezado de familia
     const trHead = document.createElement('tr');
     trHead.innerHTML = `<td colspan="6" style="padding:8px 10px;background:#1F4E79;color:#fff;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase">${familia} (${items.length})</td>`;
     tbody.appendChild(trHead);
 
     items.sort((a,b) => a.nombre.localeCompare(b.nombre, 'es')).forEach(ing => {
       const i = ing.idx;
+      const key = invGetKey(ing.nombre);
+      const valGuardado = ing._valorFisico !== undefined ? ing._valorFisico : '';
       const tr = document.createElement('tr');
       tr.className = 'inv-row';
       tr.style.background = rowIdx%2===0?'#fff':'#f5f5f7';
       tr.innerHTML = `
-        <td style="padding:8px;padding-left:16px">${ing.nombre}</td>
+        <td style="padding:8px;padding-left:16px">${ing.nombre}${ing.esNuevo?'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:6px;margin-left:4px">nuevo</span>':''}</td>
         <td style="padding:8px;text-align:right;font-weight:600">${ing.cant.toFixed(3)}</td>
         <td style="padding:8px;text-align:center;color:#888">${ing.um}</td>
         <td style="padding:8px;text-align:right" class="no-print">
-          <input type="number" id="inv-fis-${i}" placeholder="0.000" min="0" step="0.001"
-            oninput="calcDiff(${i})" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right"
-            value="${ing._valorFisico !== undefined ? ing._valorFisico : ''}">
+          <input type="number" id="inv-fis-${i}" data-invkey="${key}" placeholder="0.000" min="0" step="0.001"
+            oninput="calcDiffKey(this)" style="font-size:15px;padding:8px;border-radius:8px;border:1px solid #ddd;width:100px;text-align:right"
+            value="${valGuardado}">
         </td>
-        <td id="inv-diff-${i}" style="padding:8px;text-align:right" class="no-print">—</td>
+        <td id="inv-diff-${key}" style="padding:8px;text-align:right" class="no-print">${valGuardado!==''?'...':'—'}</td>
         <td style="padding:8px;border-bottom:1px solid #f0f0f0;text-align:right" class="print-only">________________</td>`;
       tbody.appendChild(tr);
       rowIdx++;
-      // Recalcular diferencia si hay valor guardado
-      if(ing._valorFisico !== undefined) {
-        setTimeout(() => calcDiff(i), 0);
-      }
     });
   });
+
+  // Recalcular todas las diferencias después de renderizar
+  setTimeout(() => {
+    document.querySelectorAll('[id^="inv-fis-"]').forEach(inp => {
+      if(inp.value !== '') calcDiffKey(inp);
+    });
+  }, 50);
 }
 
-function calcDiff(i) {
-  const fis = parseFloat(document.getElementById(`inv-fis-${i}`).value);
-  const diffEl = document.getElementById(`inv-diff-${i}`);
+function calcDiffKey(inputEl) {
+  const key = inputEl.getAttribute('data-invkey');
+  const diffEl = document.getElementById(`inv-diff-${key}`);
+  if(!diffEl) return;
+  const fis = parseFloat(inputEl.value);
   if(isNaN(fis)) { diffEl.textContent = '—'; diffEl.className = ''; return; }
-  const teorico = invIngredientes[i].cant;
+  const idx = invIngredientes.findIndex(r => invGetKey(r.nombre) === key);
+  if(idx < 0) return;
+  const teorico = invIngredientes[idx].cant;
   const diff = fis - teorico;
   const pct = teorico > 0 ? Math.abs(diff/teorico)*100 : 100;
   diffEl.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(3);
   diffEl.className = pct > 30 ? 'inv-diff-alert' : pct > 10 ? 'inv-diff-warn' : 'inv-diff-ok';
+  // Guardar en _valorFisico
+  invIngredientes[idx]._valorFisico = inputEl.value;
 }
+
 
 function buscarIngredienteInv(q) {
   const sug = document.getElementById('inv-sugerencias');
@@ -2923,10 +2939,12 @@ async function guardarBorradorInventario() {
   if(!u) { alert('Selecciona un responsable.'); return; }
   const filas = [];
   invIngredientes.forEach((ing, i) => {
-    const fisEl = document.getElementById(`inv-fis-${i}`);
-    const valor = (fisEl && fisEl.value !== '') ? fisEl.value : (ing._valorFisico !== undefined ? String(ing._valorFisico) : '');
+    const key = invGetKey(ing.nombre);
+    const fisEl = document.getElementById(`inv-fis-${i}`) ||
+                  document.querySelector(`[data-invkey="${key}"]`);
+    const valor = (fisEl && fisEl.value !== '') ? fisEl.value
+                : (ing._valorFisico !== undefined ? String(ing._valorFisico) : '');
     if(valor !== '') {
-      // Actualizar _valorFisico para consistencia
       invIngredientes[i]._valorFisico = valor;
       filas.push([fecha, ing.nombre, valor, ing.cant.toFixed(3), ing.um]);
     }
@@ -2952,14 +2970,16 @@ async function aplicarInventario() {
   const alertas = [];
 
   invIngredientes.forEach((ing, i) => {
-    const fisEl = document.getElementById(`inv-fis-${i}`);
-    // Considerar tanto el input DOM como el valor guardado en _valorFisico
-    const valorStr = (fisEl && fisEl.value !== '') ? fisEl.value : (ing._valorFisico !== undefined ? ing._valorFisico : '');
+    const key = invGetKey(ing.nombre);
+    const fisEl = document.getElementById(`inv-fis-${i}`) ||
+                  document.querySelector(`[data-invkey="${key}"]`);
+    const valorStr = (fisEl && fisEl.value !== '') ? fisEl.value
+                   : (ing._valorFisico !== undefined ? String(ing._valorFisico) : '');
     if(valorStr === '') return;
     const fis = parseFloat(valorStr);
     if(isNaN(fis)) return;
     const diff = fis - ing.cant;
-    if(Math.abs(diff) < 0.001) return; // sin diferencia
+    if(Math.abs(diff) < 0.001) return;
     const pct = ing.cant > 0 ? Math.abs(diff/ing.cant)*100 : 100;
     ajustes.push({ing: ing.nombre, teorico: ing.cant, fisico: fis, diff, pct, um: ing.um});
     if(pct > 30) alertas.push({ing: ing.nombre, teorico: ing.cant.toFixed(3), fisico: fis.toFixed(3), diff: diff.toFixed(3), pct: Math.round(pct)});
