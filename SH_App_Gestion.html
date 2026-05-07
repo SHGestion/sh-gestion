@@ -2031,55 +2031,6 @@ function parseXMLFactura(xmlText) {
   return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
 }
 
-async function procesarXMLsMasivo(files) {
-  xmlQueue = Array.from(files); xmlResultados = []; xmlPendienteMapeo = [];
-  document.getElementById('dzc').style.display = 'none';
-  document.getElementById('dzp').style.display = 'block';
-  document.getElementById('dzp').innerHTML = `<div style="font-size:13px;font-weight:600;color:#1F4E79;margin-bottom:8px">📦 Procesando ${xmlQueue.length} archivo(s) XML...</div><div id="xml-progreso" style="font-size:12px;color:#888"></div><div class="prog" style="margin-top:8px"><div class="progf" id="xml-progbar" style="width:0%"></div></div>`;
-  try {
-    const mapRows = await gsGet('Mapeos_Facturas');
-    if(mapRows && mapRows.length > 1) mapRows.slice(1).forEach(r => { if(r[0]&&r[1]) mapeosFacturas[String(r[0]).trim().toUpperCase()]=String(r[1]).trim(); });
-  } catch(e) {}
-  let i = 0;
-  for(const file of xmlQueue) {
-    i++;
-    document.getElementById('xml-progreso').textContent = `${i}/${xmlQueue.length}: ${file.name}`;
-    document.getElementById('xml-progbar').style.width = Math.round(i/xmlQueue.length*100)+'%';
-    try {
-      const text = await file.text();
-      const factura = parseXMLFactura(text);
-      const itemsConMapeo = [];
-      factura.items.forEach(it => {
-        const key = it.desc.toUpperCase();
-        const mapeo = mapeosFacturas[key];
-        const inMaestro = maestroPrecios[key] || maestroPrecios[(mapeo||'').toUpperCase()];
-        const conf = mapeo ? 1 : (inMaestro ? 2 : 0);
-        const item = { desc:it.desc, mapeo:mapeo||it.desc, cant:it.qty, cantEdit:it.qty, um:it.um==='Und'?'Un':it.um, umEdit:it.um==='Und'?'Un':it.um, punit:it.prcConIVA, conf, facturaFolio:factura.folio, facturaFecha:factura.fecha, facturaProveedor:factura.proveedor };
-        if(conf === 0) xmlPendienteMapeo.push({...item, facturaIdx:xmlResultados.length});
-        itemsConMapeo.push(item);
-      });
-      xmlResultados.push({ folio:factura.folio, fecha:factura.fecha, proveedor:factura.proveedor, mntTotal:factura.mntTotal, factorIVA:factura.factorIVA, items:itemsConMapeo, archivo:file.name });
-    } catch(e) { console.error('Error procesando', file.name, e); }
-  }
-  const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length,0);
-  const autoItems = totalItems - xmlPendienteMapeo.length;
-  document.getElementById('dzp').innerHTML = `
-    <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">✓ ${xmlResultados.length} factura(s) procesadas</div>
-    <div style="font-size:13px;color:#555;margin-bottom:4px">• ${autoItems} ítems con mapeo automático</div>
-    <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">• ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo</div>
-    ${xmlResultados.map(f=>`<div style="font-size:12px;background:#f5f5f7;padding:6px 10px;border-radius:6px;margin-bottom:4px"><strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')} <span style="color:#888">(${f.items.length} ítems)</span></div>`).join('')}`;
-  document.getElementById('dz').classList.add('loaded');
-  document.getElementById('proc').style.display = 'none';
-  const actDiv = document.createElement('div');
-  actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
-  if(xmlPendienteMapeo.length > 0) {
-    actDiv.innerHTML = `<button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo</button><button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">Registrar lo mapeado →</button>`;
-  } else {
-    actDiv.innerHTML = `<button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">✓ Registrar todas las facturas →</button>`;
-  }
-  document.getElementById('dzp').appendChild(actDiv);
-}
-
 function revisarMapeoXML() {
   const factIdx = xmlPendienteMapeo[0]?.facturaIdx ?? 0;
   const fact = xmlResultados[factIdx];
