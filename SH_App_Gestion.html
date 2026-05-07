@@ -2003,8 +2003,12 @@ async function registrarTodosXML() {
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
 function parseXMLFactura(xmlText) {
-  // Limpiar namespaces que rompen getElementsByTagName en algunos browsers
-  const xmlLimpio = xmlText.replace(/xmlns="[^"]*"/g, '').replace(/xmlns:[a-zA-Z0-9]+="[^"]*"/g, '');
+  // Limpiar namespaces y atributos con prefijo que rompen el parser
+  let xmlLimpio = xmlText
+    .replace(/xmlns="[^"]*"/g, '')
+    .replace(/xmlns:[a-zA-Z0-9]+="[^"]*"/g, '')
+    .replace(/xsi:[a-zA-Z]+="[^"]*"/g, '')
+    .replace(/[a-zA-Z]+:[a-zA-Z]+=["'][^"']*["']/g, '');
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlLimpio, 'text/xml');
   const get = (tag) => {
