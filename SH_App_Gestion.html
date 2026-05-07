@@ -2032,42 +2032,6 @@ function parseXMLFactura(xmlText) {
   return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
 }
 
-function revisarMapeoXML() {
-  const factIdx = xmlPendienteMapeo[0]?.facturaIdx ?? 0;
-  const fact = xmlResultados[factIdx];
-  if(!fact) return;
-  tipoF = 'xml'; itemsF = fact.items.map(it=>({...it}));
-  document.getElementById('fprov').value = fact.proveedor;
-  document.getElementById('fnum').value = fact.folio;
-  document.getElementById('fdate').value = fact.fecha;
-  renderTablaF(); fGo(2);
-}
-
-async function registrarTodosXML() {
-  const u = getUsuario();
-  if(!u) { alert('Selecciona un usuario.'); return; }
-  let totalRegistrados = 0;
-  const statusDiv = document.createElement('div');
-  statusDiv.style.cssText = 'margin-top:10px;font-size:13px;color:#888';
-  statusDiv.innerHTML = '<span class="spin"></span> Registrando facturas...';
-  document.getElementById('dzp').appendChild(statusDiv);
-
-  for(const fact of xmlResultados) {
-    const itemsAuto = fact.items.filter(it => it.conf > 0);
-    if(!itemsAuto.length) continue;
-    for(const it of itemsAuto) {
-      const factor = getKgFactor(it.desc, it.umEdit||it.um);
-      const kg = (it.cantEdit||it.cant) * factor;
-      const pxkg = factor > 0 ? Math.round(it.punit / factor) : it.punit;
-      const r = await gsPost('Movimientos', [fact.fecha,'ENTRADA',it.mapeo||it.desc,kg.toFixed(3),'Kg',pxkg,Math.round(kg*pxkg),fact.folio,fact.proveedor,u,it.desc]);
-      if(r && r.ok) { totalRegistrados++; if(pxkg>0){const k=(it.mapeo||it.desc).trim().toUpperCase(); if(maestroPrecios[k]&&!maestroPrecios[k].precio) maestroPrecios[k].precio=pxkg; else if(!maestroPrecios[k]) maestroPrecios[k]={nombre:it.mapeo||it.desc,um:'Kg',precio:pxkg,proveedor:fact.proveedor};} }
-    }
-    await gsPost('Facturas_Log',[fact.fecha,fact.proveedor,fact.folio,itemsAuto.length,Math.round(fact.mntTotal),u,'XML DTE']);
-  }
-  statusDiv.style.color = '#2e7d32';
-  statusDiv.innerHTML = `✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).${xmlPendienteMapeo.length>0?' ⚠ Quedan '+xmlPendienteMapeo.length+' ítems sin mapeo.':''}`;
-  setTimeout(()=>{ resetFactura(); cargarMovimientos(); }, 3000);
-}
 
 
 function simular(tipo) {
@@ -2208,10 +2172,11 @@ function fGo(n) {
   ['fs1','fs2','fs3'].forEach((id,idx) => document.getElementById(id).style.display = idx===n-1?'block':'none');
   if(n===3){
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    const f = tipoF==='img'?1.24:1.19;
+    // XML: precios ya incluyen IVA; img: +24%; pdf: +19%
+    const f = tipoF==='img'?1.24:tipoF==='xml'?1:1.19;
     document.getElementById('fc1').textContent = itemsF.length;
     document.getElementById('fc2').textContent = '$'+Math.round(tot*f).toLocaleString('es-CL');
-    document.getElementById('fc3').textContent = '$'+Math.round(tot).toLocaleString('es-CL');
+    document.getElementById('fc3').textContent = '$'+Math.round(tot/f).toLocaleString('es-CL');
     const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactor(it.desc,it.umEdit||it.um),0);
     document.getElementById('fc4').textContent = '+'+kg.toFixed(1)+' kg';
     const alertas = window._alertasPrecios||[];
