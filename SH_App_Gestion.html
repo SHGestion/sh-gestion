@@ -1902,11 +1902,14 @@ function revisarMapeoXML() {
   if(!fact) return;
   tipoF = 'xml';
   itemsF = fact.items.map(it => ({...it}));
-  document.getElementById('fprov').value = fact.proveedor;
-  document.getElementById('fnum').value = fact.folio;
+  const provEl = document.getElementById('fprov');
+  if(provEl) provEl.value = fact.proveedor;
+  const numEl = document.getElementById('fnum');
+  if(numEl) numEl.value = fact.folio;
   const fechaParts = fact.fecha.split('-');
   if(fechaParts.length === 3) {
-    document.getElementById('fdate').value = fact.fecha;
+    const fechaEl = document.getElementById('ffecha');
+    if(fechaEl) fechaEl.value = fact.fecha;
   }
   renderTablaF();
   fGo(2);
@@ -1999,7 +2002,19 @@ async function registrarTodosXML() {
       ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Quedan '+xmlPendienteMapeo.length+' ítems sin mapeo.' : ''}`;
   }
 
-  setTimeout(() => { resetFactura(); cargarMovimientos(); }, 3000);
+  setTimeout(() => {
+    // Reset estado XML
+    xmlResultados = [];
+    xmlPendienteMapeo = [];
+    itemsF = [];
+    tipoF = null;
+    // Limpiar área de mapeo
+    const dzp = document.getElementById('dzp');
+    if(dzp) dzp.innerHTML = '';
+    // Volver al paso 1
+    fGo(1);
+    cargarMovimientos();
+  }, 3000);
 }
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
