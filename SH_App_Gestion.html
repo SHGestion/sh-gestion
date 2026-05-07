@@ -2003,9 +2003,14 @@ async function registrarTodosXML() {
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
 function parseXMLFactura(xmlText) {
+  // Limpiar namespaces que rompen getElementsByTagName en algunos browsers
+  const xmlLimpio = xmlText.replace(/xmlns="[^"]*"/g, '').replace(/xmlns:[a-zA-Z0-9]+="[^"]*"/g, '');
   const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, 'text/xml');
-  const get = (tag) => { const el = doc.getElementsByTagName(tag)[0]; return el ? el.textContent.trim() : ''; };
+  const doc = parser.parseFromString(xmlLimpio, 'text/xml');
+  const get = (tag) => {
+    const el = doc.getElementsByTagName(tag)[0];
+    return el ? el.textContent.trim() : '';
+  };
   const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
   const folio = get('Folio'), fecha = get('FchEmis'), proveedor = get('RznSoc');
   const mntNeto = parseFloat(get('MntNeto'))||0, iva = parseFloat(get('IVA'))||0;
@@ -3454,7 +3459,12 @@ async function procesarXMLGastos(files) {
   let gastosParaRevisar = [];
   for(const file of xmlFiles) {
     try {
-      const text = await file.text();
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result);
+        r.onerror = rej;
+        r.readAsText(file, 'ISO-8859-1');
+      });
       const fact = parseXMLFactura(text);
       gastosParaRevisar.push({
         folio: fact.folio,
