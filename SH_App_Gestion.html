@@ -233,7 +233,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       </div>
       <div class="dz" id="dz" onclick="document.getElementById('fin').click()" ondragover="event.preventDefault();this.classList.add('drag')"
         ondragleave="this.classList.remove('drag')" ondrop="onDrop(event)">
-        <input type="file" id="fin" accept="image/*,.pdf" style="display:none!important" onchange="if(this.files[0])processFile(this.files[0])">
+        <input type="file" id="fin" accept="image/*,.pdf,.xml,text/xml,application/xml" multiple style="display:none!important" onchange="procesarArchivos(this.files)">
         <div id="dzc">
           <div style="display:flex;justify-content:center;gap:24px;margin-bottom:12px">
             <div style="text-align:center">
@@ -252,8 +252,17 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
               <div style="font-size:11px;color:#888">Bidfood Ñuble etc.</div>
             </div>
           </div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:3px">Toca para subir foto o PDF</div>
-          <div style="font-size:12px;color:#888">Claude extrae todos los datos automáticamente</div>
+          <div style="width:1px;background:#eee"></div>
+            <div style="text-align:center">
+              <div style="width:40px;height:40px;background:#e8f5e9;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+              </div>
+              <div style="font-size:12px;font-weight:600">XML DTE</div>
+              <div style="font-size:11px;color:#888">1 o varios</div>
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:3px">Toca para subir foto, PDF o XML</div>
+          <div style="font-size:12px;color:#888">XML: extracción instantánea sin IA · múltiples archivos a la vez</div>
           <div style="font-size:11px;color:#aaa;margin-top:4px">Foto: luz uniforme · factura plana · encuadra toda la hoja</div>
         </div>
         <div id="dzp" style="display:none"></div>
@@ -593,7 +602,15 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
         <span class="lbl">Descripción</span>
         <input type="text" id="gasto-desc" placeholder="Descripción del gasto">
       </div>
-      <button class="btn btnp" style="margin-top:10px;width:100%;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <label style="flex:1;cursor:pointer">
+          <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" onchange="procesarXMLGastos(this.files)">
+          <div class="btn" style="width:100%;font-size:13px;padding:10px;text-align:center;box-sizing:border-box">
+            📄 Subir XML(s)
+          </div>
+        </label>
+        <button class="btn btnp" style="flex:2;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      </div>
       <div id="gasto-ok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-weight:600"></div>
       <div id="gasto-err" style="display:none;margin-top:8px;padding:10px;background:#ffebee;border-radius:8px;color:#b71c1c;font-weight:600"></div>
     </div>
@@ -676,7 +693,15 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
         <span class="lbl">Descripción</span>
         <input type="text" id="gasto-desc" placeholder="Descripción del gasto">
       </div>
-      <button class="btn btnp" style="margin-top:10px;width:100%;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <label style="flex:1;cursor:pointer">
+          <input type="file" accept=".xml,text/xml,application/xml" multiple style="display:none" onchange="procesarXMLGastos(this.files)">
+          <div class="btn" style="width:100%;font-size:13px;padding:10px;text-align:center;box-sizing:border-box">
+            📄 Subir XML(s)
+          </div>
+        </label>
+        <button class="btn btnp" style="flex:2;font-size:14px;padding:10px" onclick="registrarGasto()">Registrar gasto →</button>
+      </div>
       <div id="gasto-ok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-weight:600"></div>
       <div id="gasto-err" style="display:none;margin-top:8px;padding:10px;background:#ffebee;border-radius:8px;color:#b71c1c;font-weight:600"></div>
     </div>
@@ -1660,8 +1685,18 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 }
 
 
+function procesarArchivos(files) {
+  if(!files || !files.length) return;
+  const xmlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.xml'));
+  const otros = Array.from(files).filter(f => !f.name.toLowerCase().endsWith('.xml'));
+  if(xmlFiles.length > 0) {
+    procesarXMLsMasivo(xmlFiles);
+    return;
+  }
+  if(otros.length > 0) processFile(otros[0]);
+}
+
 function processFile(f) {
-  alert('Archivo: ' + f.name + ' | Tipo: ' + f.type + ' | Tamaño: ' + f.size);
   const isImg = f.type.startsWith('image/');
   if(!isImg && f.type!=='application/pdf'){alert('Selecciona imagen o PDF.');return;}
   document.getElementById('dzc').style.display='none';
@@ -1703,6 +1738,376 @@ function processFile(f) {
   };
   reader.readAsDataURL(f);
 }
+
+// ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
+function parseXMLFactura(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'text/xml');
+  const get = (tag) => {
+    const el = doc.getElementsByTagName(tag)[0];
+    return el ? el.textContent.trim() : '';
+  };
+  const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
+
+  const folio = get('Folio');
+  const fecha = get('FchEmis');
+  const proveedor = get('RznSoc');
+  const mntNeto = parseFloat(get('MntNeto'))||0;
+  const iva = parseFloat(get('IVA'))||0;
+  const tasaIVA = parseFloat(get('TasaIVA'))||19;
+  const mntTotal = parseFloat(get('MntTotal'))||0;
+  const factorIVA = 1 + tasaIVA/100;
+
+  const items = getAll('Detalle').map(d => {
+    const nmb = (d.getElementsByTagName('NmbItem')[0]?.textContent||'').trim();
+    const qty = parseFloat(d.getElementsByTagName('QtyItem')[0]?.textContent||0);
+    const um = (d.getElementsByTagName('UnmdItem')[0]?.textContent||'Und').trim();
+    const prcNeto = parseFloat(d.getElementsByTagName('PrcItem')[0]?.textContent||0);
+    const monto = parseFloat(d.getElementsByTagName('MontoItem')[0]?.textContent||0);
+    // Precio con IVA por unidad
+    const prcConIVA = Math.round(prcNeto * factorIVA);
+    const montoConIVA = Math.round(monto * factorIVA);
+    return { desc: nmb, qty, um, prcNeto, prcConIVA, monto, montoConIVA };
+  });
+
+  return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
+}
+
+// Cola de XMLs para procesar en modo masivo
+let xmlQueue = [];
+let xmlResultados = []; // facturas ya procesadas con mapeo aplicado
+let xmlPendienteMapeo = []; // ítems sin mapeo que necesitan revisión
+
+async function procesarXMLsMasivo(files) {
+  xmlQueue = Array.from(files);
+  xmlResultados = [];
+  xmlPendienteMapeo = [];
+
+  // Mostrar panel de procesamiento masivo
+  document.getElementById('dzc').style.display = 'none';
+  document.getElementById('dzp').style.display = 'block';
+  document.getElementById('dzp').innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:#1F4E79;margin-bottom:8px">
+      📦 Procesando ${xmlQueue.length} archivo(s) XML...
+    </div>
+    <div id="xml-progreso" style="font-size:12px;color:#888"></div>
+    <div class="prog" style="margin-top:8px"><div class="progf" id="xml-progbar" style="width:0%"></div></div>`;
+
+  // Cargar mapeos frescos
+  try {
+    const mapRows = await gsGet('Mapeos_Facturas');
+    if(mapRows && mapRows.length > 1) {
+      mapRows.slice(1).forEach(r => {
+        if(r[0] && r[1]) mapeosFacturas[String(r[0]).trim().toUpperCase()] = String(r[1]).trim();
+      });
+    }
+  } catch(e) {}
+
+  let i = 0;
+  for(const file of xmlQueue) {
+    i++;
+    document.getElementById('xml-progreso').textContent = `${i}/${xmlQueue.length}: ${file.name}`;
+    document.getElementById('xml-progbar').style.width = Math.round(i/xmlQueue.length*100)+'%';
+
+    try {
+      const text = await file.text();
+      const factura = parseXMLFactura(text);
+      const itemsConMapeo = [];
+      const sinMapeo = [];
+
+      factura.items.forEach(it => {
+        const key = it.desc.toUpperCase();
+        const mapeo = mapeosFacturas[key];
+        const inMaestro = maestroPrecios[key] || maestroPrecios[(mapeo||'').toUpperCase()];
+        const conf = mapeo ? 1 : (inMaestro ? 2 : 0);
+        const item = {
+          desc: it.desc,
+          mapeo: mapeo || it.desc,
+          cant: it.qty,
+          cantEdit: it.qty,
+          um: it.um === 'Und' ? 'Un' : it.um,
+          umEdit: it.um === 'Und' ? 'Un' : it.um,
+          punit: it.prcConIVA,
+          conf,
+          facturaFolio: factura.folio,
+          facturaFecha: factura.fecha,
+          facturaProveedor: factura.proveedor,
+        };
+        if(conf === 0) sinMapeo.push({...item, facturaIdx: xmlResultados.length});
+        itemsConMapeo.push(item);
+      });
+
+      xmlResultados.push({
+        folio: factura.folio,
+        fecha: factura.fecha,
+        proveedor: factura.proveedor,
+        mntTotal: factura.mntTotal,
+        factorIVA: factura.factorIVA,
+        items: itemsConMapeo,
+        archivo: file.name
+      });
+      xmlPendienteMapeo.push(...sinMapeo);
+    } catch(e) {
+      console.error('Error procesando', file.name, e);
+    }
+  }
+
+  // Mostrar resumen
+  const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
+  const autoItems = totalItems - xmlPendienteMapeo.length;
+  document.getElementById('dzp').innerHTML = `
+    <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
+      ✓ ${xmlResultados.length} factura(s) procesadas
+    </div>
+    <div style="font-size:13px;color:#555;margin-bottom:4px">
+      • ${autoItems} ítems con mapeo automático
+    </div>
+    <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
+      • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
+    </div>
+    ${xmlResultados.map(f=>`
+      <div style="font-size:12px;background:#f5f5f7;padding:6px 10px;border-radius:6px;margin-bottom:4px">
+        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+      </div>`).join('')}`;
+
+  document.getElementById('dz').classList.add('loaded');
+  document.getElementById('proc').style.display = 'none';
+
+  // Botones de acción
+  const actDiv = document.createElement('div');
+  actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
+  if(xmlPendienteMapeo.length > 0) {
+    actDiv.innerHTML = `
+      <button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">
+        🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo
+      </button>
+      <button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">
+        Registrar lo mapeado + revisar nuevos →
+      </button>`;
+  } else {
+    actDiv.innerHTML = `
+      <button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">
+        ✓ Registrar todas las facturas →
+      </button>`;
+  }
+  document.getElementById('dzp').appendChild(actDiv);
+}
+
+function revisarMapeoXML() {
+  // Tomar la primera factura con ítems sin mapeo para revisión manual
+  const factIdx = xmlPendienteMapeo[0]?.facturaIdx ?? 0;
+  const fact = xmlResultados[factIdx];
+  if(!fact) return;
+  tipoF = 'xml';
+  itemsF = fact.items.map(it => ({...it}));
+  document.getElementById('fprov').value = fact.proveedor;
+  document.getElementById('fnum').value = fact.folio;
+  const fechaParts = fact.fecha.split('-');
+  if(fechaParts.length === 3) {
+    document.getElementById('fdate').value = fact.fecha;
+  }
+  renderTablaF();
+  fGo(2);
+}
+
+async function registrarTodosXML() {
+  const u = getUsuario();
+  if(!u) { alert('Selecciona un usuario.'); return; }
+
+  let totalRegistrados = 0;
+  let totalErrores = 0;
+
+  document.getElementById('dzp').innerHTML += `
+    <div id="xml-reg-status" style="margin-top:10px;font-size:13px;color:#888">
+      <span class="spin"></span> Registrando facturas...
+    </div>`;
+
+  for(const fact of xmlResultados) {
+    const itemsAuto = fact.items.filter(it => it.conf > 0);
+    if(!itemsAuto.length) continue;
+
+    // Recargar maestro antes de registrar
+    try {
+      const maestroFresh = await gsGet('Maestro_Precios');
+      if(maestroFresh && maestroFresh.length > 1) {
+        maestroFresh.slice(1).forEach(r => {
+          if(r[0]) {
+            const k = r[0].toString().trim().toUpperCase();
+            const p = parseFloat(r[2])||0;
+            if(p > 0) {
+              if(maestroPrecios[k]) maestroPrecios[k].precio = p;
+              else maestroPrecios[k] = {nombre:r[0],um:r[1]||'Kg',precio:p,proveedor:''};
+            }
+          }
+        });
+      }
+    } catch(e) {}
+
+    for(const it of itemsAuto) {
+      const kg = calcularKg(it.cantEdit ?? it.cant, it.umEdit ?? it.um, it.mapeo);
+      const pxkg = Math.round(it.punit / Math.max(calcularKg(1, it.umEdit??it.um, it.mapeo), 0.001));
+      const totalLinea = Math.round(kg * pxkg);
+      const r = await gsPost('Movimientos', [
+        fact.fecha, 'ENTRADA', it.mapeo||it.desc,
+        kg.toFixed(3), 'Kg', pxkg, totalLinea,
+        fact.folio, fact.proveedor, u, it.desc
+      ]);
+      if(r && r.ok) totalRegistrados++;
+      else totalErrores++;
+
+      // Actualizar maestro si precio > 0
+      if(pxkg > 0) {
+        const k = (it.mapeo||it.desc).trim().toUpperCase();
+        if(maestroPrecios[k] && (maestroPrecios[k].precio === 0 || !maestroPrecios[k].precio)) {
+          maestroPrecios[k].precio = pxkg;
+        }
+      }
+    }
+
+    await gsPost('Facturas_Log', [
+      fact.fecha, fact.proveedor, fact.folio, itemsAuto.length,
+      Math.round(fact.mntTotal), u, 'XML DTE'
+    ]);
+  }
+
+  // Actualizar Maestro_Precios con precios nuevos
+  try {
+    const maestroRows = await gsGet('Maestro_Precios');
+    const enc = maestroRows[0];
+    const nuevas = maestroRows.slice(1).map(r => {
+      const fila = [...r];
+      const k = (fila[0]||'').toString().trim().toUpperCase();
+      const p = maestroPrecios[k] ? maestroPrecios[k].precio : 0;
+      if(p > 0 && (parseFloat(fila[2])||0) === 0) fila[2] = p;
+      return fila;
+    });
+    await fetch(API, {method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({accion:'clear',hoja:'Maestro_Precios'})});
+    await gsPost('Maestro_Precios', enc);
+    for(let i=0;i<nuevas.length;i+=50) {
+      await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({accion:'batch',hoja:'Maestro_Precios',filas:nuevas.slice(i,i+50)})});
+    }
+  } catch(e) { console.warn('Error actualizando maestro:', e); }
+
+  const statusEl = document.getElementById('xml-reg-status');
+  if(statusEl) {
+    statusEl.style.color = totalErrores === 0 ? '#2e7d32' : '#e65100';
+    statusEl.innerHTML = `✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).
+      ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Quedan '+xmlPendienteMapeo.length+' ítems sin mapeo.' : ''}`;
+  }
+
+  setTimeout(() => { resetFactura(); cargarMovimientos(); }, 3000);
+}
+
+// ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
+function parseXMLFactura(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'text/xml');
+  const get = (tag) => { const el = doc.getElementsByTagName(tag)[0]; return el ? el.textContent.trim() : ''; };
+  const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
+  const folio = get('Folio'), fecha = get('FchEmis'), proveedor = get('RznSoc');
+  const mntNeto = parseFloat(get('MntNeto'))||0, iva = parseFloat(get('IVA'))||0;
+  const tasaIVA = parseFloat(get('TasaIVA'))||19, mntTotal = parseFloat(get('MntTotal'))||0;
+  const factorIVA = 1 + tasaIVA/100;
+  const items = getAll('Detalle').map(d => {
+    const nmb = (d.getElementsByTagName('NmbItem')[0]?.textContent||'').trim();
+    const qty = parseFloat(d.getElementsByTagName('QtyItem')[0]?.textContent||0);
+    const um = (d.getElementsByTagName('UnmdItem')[0]?.textContent||'Und').trim();
+    const prcNeto = parseFloat(d.getElementsByTagName('PrcItem')[0]?.textContent||0);
+    const monto = parseFloat(d.getElementsByTagName('MontoItem')[0]?.textContent||0);
+    return { desc: nmb, qty, um, prcNeto, prcConIVA: Math.round(prcNeto*factorIVA), monto, montoConIVA: Math.round(monto*factorIVA) };
+  });
+  return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
+}
+
+async function procesarXMLsMasivo(files) {
+  xmlQueue = Array.from(files); xmlResultados = []; xmlPendienteMapeo = [];
+  document.getElementById('dzc').style.display = 'none';
+  document.getElementById('dzp').style.display = 'block';
+  document.getElementById('dzp').innerHTML = `<div style="font-size:13px;font-weight:600;color:#1F4E79;margin-bottom:8px">📦 Procesando ${xmlQueue.length} archivo(s) XML...</div><div id="xml-progreso" style="font-size:12px;color:#888"></div><div class="prog" style="margin-top:8px"><div class="progf" id="xml-progbar" style="width:0%"></div></div>`;
+  try {
+    const mapRows = await gsGet('Mapeos_Facturas');
+    if(mapRows && mapRows.length > 1) mapRows.slice(1).forEach(r => { if(r[0]&&r[1]) mapeosFacturas[String(r[0]).trim().toUpperCase()]=String(r[1]).trim(); });
+  } catch(e) {}
+  let i = 0;
+  for(const file of xmlQueue) {
+    i++;
+    document.getElementById('xml-progreso').textContent = `${i}/${xmlQueue.length}: ${file.name}`;
+    document.getElementById('xml-progbar').style.width = Math.round(i/xmlQueue.length*100)+'%';
+    try {
+      const text = await file.text();
+      const factura = parseXMLFactura(text);
+      const itemsConMapeo = [];
+      factura.items.forEach(it => {
+        const key = it.desc.toUpperCase();
+        const mapeo = mapeosFacturas[key];
+        const inMaestro = maestroPrecios[key] || maestroPrecios[(mapeo||'').toUpperCase()];
+        const conf = mapeo ? 1 : (inMaestro ? 2 : 0);
+        const item = { desc:it.desc, mapeo:mapeo||it.desc, cant:it.qty, cantEdit:it.qty, um:it.um==='Und'?'Un':it.um, umEdit:it.um==='Und'?'Un':it.um, punit:it.prcConIVA, conf, facturaFolio:factura.folio, facturaFecha:factura.fecha, facturaProveedor:factura.proveedor };
+        if(conf === 0) xmlPendienteMapeo.push({...item, facturaIdx:xmlResultados.length});
+        itemsConMapeo.push(item);
+      });
+      xmlResultados.push({ folio:factura.folio, fecha:factura.fecha, proveedor:factura.proveedor, mntTotal:factura.mntTotal, factorIVA:factura.factorIVA, items:itemsConMapeo, archivo:file.name });
+    } catch(e) { console.error('Error procesando', file.name, e); }
+  }
+  const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length,0);
+  const autoItems = totalItems - xmlPendienteMapeo.length;
+  document.getElementById('dzp').innerHTML = `
+    <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">✓ ${xmlResultados.length} factura(s) procesadas</div>
+    <div style="font-size:13px;color:#555;margin-bottom:4px">• ${autoItems} ítems con mapeo automático</div>
+    <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">• ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo</div>
+    ${xmlResultados.map(f=>`<div style="font-size:12px;background:#f5f5f7;padding:6px 10px;border-radius:6px;margin-bottom:4px"><strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')} <span style="color:#888">(${f.items.length} ítems)</span></div>`).join('')}`;
+  document.getElementById('dz').classList.add('loaded');
+  document.getElementById('proc').style.display = 'none';
+  const actDiv = document.createElement('div');
+  actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
+  if(xmlPendienteMapeo.length > 0) {
+    actDiv.innerHTML = `<button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo</button><button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">Registrar lo mapeado →</button>`;
+  } else {
+    actDiv.innerHTML = `<button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">✓ Registrar todas las facturas →</button>`;
+  }
+  document.getElementById('dzp').appendChild(actDiv);
+}
+
+function revisarMapeoXML() {
+  const factIdx = xmlPendienteMapeo[0]?.facturaIdx ?? 0;
+  const fact = xmlResultados[factIdx];
+  if(!fact) return;
+  tipoF = 'xml'; itemsF = fact.items.map(it=>({...it}));
+  document.getElementById('fprov').value = fact.proveedor;
+  document.getElementById('fnum').value = fact.folio;
+  document.getElementById('fdate').value = fact.fecha;
+  renderTablaF(); fGo(2);
+}
+
+async function registrarTodosXML() {
+  const u = getUsuario();
+  if(!u) { alert('Selecciona un usuario.'); return; }
+  let totalRegistrados = 0;
+  const statusDiv = document.createElement('div');
+  statusDiv.style.cssText = 'margin-top:10px;font-size:13px;color:#888';
+  statusDiv.innerHTML = '<span class="spin"></span> Registrando facturas...';
+  document.getElementById('dzp').appendChild(statusDiv);
+
+  for(const fact of xmlResultados) {
+    const itemsAuto = fact.items.filter(it => it.conf > 0);
+    if(!itemsAuto.length) continue;
+    for(const it of itemsAuto) {
+      const factor = getKgFactor(it.desc, it.umEdit||it.um);
+      const kg = (it.cantEdit||it.cant) * factor;
+      const pxkg = factor > 0 ? Math.round(it.punit / factor) : it.punit;
+      const r = await gsPost('Movimientos', [fact.fecha,'ENTRADA',it.mapeo||it.desc,kg.toFixed(3),'Kg',pxkg,Math.round(kg*pxkg),fact.folio,fact.proveedor,u,it.desc]);
+      if(r && r.ok) { totalRegistrados++; if(pxkg>0){const k=(it.mapeo||it.desc).trim().toUpperCase(); if(maestroPrecios[k]&&!maestroPrecios[k].precio) maestroPrecios[k].precio=pxkg; else if(!maestroPrecios[k]) maestroPrecios[k]={nombre:it.mapeo||it.desc,um:'Kg',precio:pxkg,proveedor:fact.proveedor};} }
+    }
+    await gsPost('Facturas_Log',[fact.fecha,fact.proveedor,fact.folio,itemsAuto.length,Math.round(fact.mntTotal),u,'XML DTE']);
+  }
+  statusDiv.style.color = '#2e7d32';
+  statusDiv.innerHTML = `✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).${xmlPendienteMapeo.length>0?' ⚠ Quedan '+xmlPendienteMapeo.length+' ítems sin mapeo.':''}`;
+  setTimeout(()=>{ resetFactura(); cargarMovimientos(); }, 3000);
+}
+
 
 function simular(tipo) {
   tipoF = tipo;
@@ -3035,6 +3440,95 @@ async function aplicarInventario() {
 }
 
 // ── GASTOS GENERALES ─────────────────────────────────────────────────────────
+async function procesarXMLGastos(files) {
+  if(!files || !files.length) return;
+  const u = getUsuario();
+  const okEl = document.getElementById('gasto-ok');
+  const errEl = document.getElementById('gasto-err');
+  okEl.style.display='none'; errEl.style.display='none';
+
+  const xmlFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.xml'));
+  if(!xmlFiles.length) { errEl.style.display='block'; errEl.textContent='Selecciona archivos XML.'; return; }
+
+  // Mostrar modal de revisión de gastos
+  let gastosParaRevisar = [];
+  for(const file of xmlFiles) {
+    try {
+      const text = await file.text();
+      const fact = parseXMLFactura(text);
+      gastosParaRevisar.push({
+        folio: fact.folio,
+        fecha: fact.fecha,
+        proveedor: fact.proveedor,
+        mntTotal: fact.mntTotal,
+        tipoDoc: 'Factura',
+        archivo: file.name,
+        familia: '',
+        desc: fact.proveedor + ' — ' + fact.items.map(i=>i.desc).join(', ').substring(0,60)
+      });
+    } catch(e) { console.error(e); }
+  }
+
+  if(!gastosParaRevisar.length) {
+    errEl.style.display='block'; errEl.textContent='No se pudieron leer los XML.'; return;
+  }
+
+  // Mostrar modal de revisión
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:20px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto">
+      <div style="font-size:15px;font-weight:700;color:#1F4E79;margin-bottom:14px">
+        📄 ${gastosParaRevisar.length} gasto(s) detectados — asigna la familia
+      </div>
+      ${gastosParaRevisar.map((g,i) => `
+        <div style="background:#f5f5f7;border-radius:10px;padding:12px;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:600">${g.proveedor} — Folio ${g.folio}</div>
+          <div style="font-size:11px;color:#888;margin:3px 0">${g.fecha} · $${Math.round(g.mntTotal).toLocaleString('es-CL')}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+            <select id="gxml-fam-${i}" style="font-size:13px;padding:6px;border-radius:8px;border:1px solid #ddd">
+              <option value="">— Familia —</option>
+              <option>Seguros</option><option>Licencias TI</option><option>Aseo y Limpieza</option>
+              <option>Combustible</option><option>Gas</option><option>Gastos de Representación</option>
+              <option>Peajes</option><option>Activos Fijos</option><option>Otros</option>
+            </select>
+            <select id="gxml-tdoc-${i}" style="font-size:13px;padding:6px;border-radius:8px;border:1px solid #ddd">
+              <option>Factura</option><option>Boleta</option><option>Ticket</option>
+            </select>
+          </div>
+          <input id="gxml-desc-${i}" type="text" value="${g.desc}" style="width:100%;font-size:12px;padding:6px;border-radius:8px;border:1px solid #ddd;margin-top:6px;box-sizing:border-box" placeholder="Descripción">
+        </div>`).join('')}
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn" style="flex:1;padding:10px" onclick="this.closest('div[style*=fixed]').remove()">Cancelar</button>
+        <button class="btn btnp" style="flex:2;padding:10px" onclick="confirmarGastosXML(${JSON.stringify(gastosParaRevisar).replace(/"/g,'&quot;')},this)">Registrar gastos →</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function confirmarGastosXML(gastos, btn) {
+  const u = getUsuario();
+  const modal = btn.closest('div[style*="fixed"]');
+  btn.disabled = true; btn.textContent = 'Registrando...';
+
+  let ok = 0;
+  for(let i=0; i<gastos.length; i++) {
+    const g = gastos[i];
+    const familia = document.getElementById(`gxml-fam-${i}`)?.value || 'Otros';
+    const tipoDoc = document.getElementById(`gxml-tdoc-${i}`)?.value || 'Factura';
+    const desc = document.getElementById(`gxml-desc-${i}`)?.value || g.proveedor;
+    const r = await gsPost('Gastos_GS', [g.fecha, desc, familia, tipoDoc, g.folio, Math.round(g.mntTotal), u||'Marcelo']);
+    if(r && r.ok) ok++;
+  }
+
+  modal.remove();
+  const okEl = document.getElementById('gasto-ok');
+  okEl.style.display='block';
+  okEl.textContent = `✓ ${ok} gasto(s) registrados desde XML.`;
+  setTimeout(()=>{ okEl.style.display='none'; cargarGastos(); }, 3000);
+}
+
+
 let gastosData = [];
 
 async function cargarGastos() {
