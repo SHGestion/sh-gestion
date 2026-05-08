@@ -2018,19 +2018,23 @@ async function registrarTodosXML() {
   xmlResultados.forEach(fact => {
     const itemsAuto = fact.items.filter(it => it.conf > 0);
     if(!itemsAuto.length) return;
+    let totFactura = 0;
     itemsAuto.forEach(it => {
-      const kg = calcularKg(it.cantEdit ?? it.cant, it.umEdit ?? it.um, it.mapeo);
-      const pxkg = Math.round(it.punit / Math.max(calcularKg(1, it.umEdit??it.um, it.mapeo), 0.001));
-      const totalLinea = Math.round(kg * pxkg);
+      const factor = getKgFactor(it.desc, it.umEdit||it.um);
+      const cant = it.cantEdit ?? it.cant;
+      const kg = (cant * factor).toFixed(3);
+      const pxkg = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+      const totalLinea = Math.round(parseFloat(kg) * pxkg);
+      totFactura += it.punit * cant;
       filasMov.push([
         fact.fecha, 'ENTRADA', it.mapeo||it.desc,
-        kg.toFixed(3), 'Kg', pxkg, totalLinea,
+        kg, 'Kg', Math.round(pxkg), totalLinea,
         fact.folio, fact.proveedor, u, it.desc
       ]);
     });
     filasLog.push([
       fact.fecha, fact.proveedor, fact.folio, itemsAuto.length,
-      Math.round(fact.mntTotal), u, 'XML DTE'
+      Math.round(totFactura * 1.19), u, 'XML DTE'
     ]);
   });
 
