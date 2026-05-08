@@ -277,6 +277,15 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       <button class="btn" onclick="simular('img')">Demo foto (Carnes Ñuble)</button>
       <button class="btn" onclick="simular('pdf')">Demo PDF (Walmart)</button>
     </div>
+
+    <div style="margin-top:16px;padding-top:12px;border-top:1px dashed #ddd">
+      <button class="btn" style="width:100%;font-size:13px;padding:10px" onclick="abrirRevisionPrecios()">
+        💲 Actualizar precios del Maestro desde Movimientos
+      </button>
+      <div style="font-size:11px;color:#888;text-align:center;margin-top:4px">
+        Compara últimos precios registrados con el Maestro y aplica los cambios que confirmes
+      </div>
+    </div>
   </div>
 
   <div id="fs2" style="display:none">
@@ -329,6 +338,28 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       <button class="btn btns" id="btnreg" onclick="registrarFactura()">Registrar entrada →</button>
     </div>
     <div id="fok" style="display:none;margin-top:10px;padding:12px;background:#e8f5e9;border-radius:10px;color:#1b5e20;font-weight:600"></div>
+  </div>
+
+  <!-- Modal: Revisión y actualización de precios del Maestro -->
+  <div id="precios-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px">
+    <div style="max-width:900px;margin:20px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 8px 24px rgba(0,0,0,0.2)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div>
+          <strong style="font-size:16px">Actualizar precios del Maestro</strong>
+          <div style="font-size:12px;color:#888">Comparación con últimos precios de Movimientos (ENTRADA)</div>
+        </div>
+        <button class="btn" style="padding:6px 12px" onclick="cerrarRevisionPrecios()">✕ Cerrar</button>
+      </div>
+      <div id="precios-status" style="font-size:13px;color:#888;margin-bottom:10px">
+        <span class="spin"></span> Calculando diferencias...
+      </div>
+      <div id="precios-tabla" style="max-height:60vh;overflow-y:auto;border:1px solid #eee;border-radius:8px"></div>
+      <div id="precios-actions" style="display:none;margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionPrecios(true)">✓ Marcar todos</button>
+        <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionPrecios(false)">○ Desmarcar todos</button>
+        <button class="btn btnp" style="flex:2;padding:9px" id="btn-aplicar-precios" onclick="aplicarActualizacionPrecios()">Aplicar cambios marcados →</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1896,9 +1927,17 @@ async function procesarXMLsMasivo(files) {
 }
 
 function revisarMapeoXML() {
-  // Tomar la primera factura con ítems sin mapeo para revisión manual
+  // Si no quedan facturas, hacer reset
+  if(!xmlResultados.length) {
+    const dzp = document.getElementById('dzp');
+    if(dzp) dzp.innerHTML = '';
+    fGo(1);
+    return;
+  }
+  // Tomar la primera factura pendiente: si hay ítems sin mapeo, ir a esa factura;
+  // si no, tomar simplemente la primera factura restante
   const factIdx = xmlPendienteMapeo[0]?.facturaIdx ?? 0;
-  const fact = xmlResultados[factIdx];
+  const fact = xmlResultados[factIdx] ?? xmlResultados[0];
   if(!fact) return;
   tipoF = 'xml';
   itemsF = fact.items.map(it => ({...it}));
@@ -1919,6 +1958,14 @@ async function registrarTodosXML() {
   const u = getUsuario();
   if(!u) { alert('Selecciona un usuario.'); return; }
 
+  // Si NO hay ítems con mapeo automático y SÍ hay pendientes,
+  // saltar directo al flujo de revisión manual (no hay nada que registrar)
+  const totalAuto = xmlResultados.reduce((s,f)=>s+f.items.filter(it=>it.conf>0).length, 0);
+  if(totalAuto === 0 && xmlPendienteMapeo.length > 0) {
+    revisarMapeoXML();
+    return;
+  }
+
   let totalRegistrados = 0;
   let totalErrores = 0;
 
@@ -1931,23 +1978,6 @@ async function registrarTodosXML() {
     const itemsAuto = fact.items.filter(it => it.conf > 0);
     if(!itemsAuto.length) continue;
 
-    // Recargar maestro antes de registrar
-    try {
-      const maestroFresh = await gsGet('Maestro_Precios');
-      if(maestroFresh && maestroFresh.length > 1) {
-        maestroFresh.slice(1).forEach(r => {
-          if(r[0]) {
-            const k = r[0].toString().trim().toUpperCase();
-            const p = parseFloat(r[2])||0;
-            if(p > 0) {
-              if(maestroPrecios[k]) maestroPrecios[k].precio = p;
-              else maestroPrecios[k] = {nombre:r[0],um:r[1]||'Kg',precio:p,proveedor:''};
-            }
-          }
-        });
-      }
-    } catch(e) {}
-
     for(const it of itemsAuto) {
       const kg = calcularKg(it.cantEdit ?? it.cant, it.umEdit ?? it.um, it.mapeo);
       const pxkg = Math.round(it.punit / Math.max(calcularKg(1, it.umEdit??it.um, it.mapeo), 0.001));
@@ -1959,14 +1989,6 @@ async function registrarTodosXML() {
       ]);
       if(r && r.ok) totalRegistrados++;
       else totalErrores++;
-
-      // Actualizar maestro si precio > 0
-      if(pxkg > 0) {
-        const k = (it.mapeo||it.desc).trim().toUpperCase();
-        if(maestroPrecios[k] && (maestroPrecios[k].precio === 0 || !maestroPrecios[k].precio)) {
-          maestroPrecios[k].precio = pxkg;
-        }
-      }
     }
 
     await gsPost('Facturas_Log', [
@@ -1975,31 +1997,17 @@ async function registrarTodosXML() {
     ]);
   }
 
-  // Actualizar Maestro_Precios con precios nuevos
-  try {
-    const maestroRows = await gsGet('Maestro_Precios');
-    const enc = maestroRows[0];
-    const nuevas = maestroRows.slice(1).map(r => {
-      const fila = [...r];
-      const k = (fila[0]||'').toString().trim().toUpperCase();
-      const p = maestroPrecios[k] ? maestroPrecios[k].precio : 0;
-      if(p > 0 && (parseFloat(fila[2])||0) === 0) fila[2] = p;
-      return fila;
-    });
-    await fetch(API, {method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({accion:'clear',hoja:'Maestro_Precios'})});
-    await gsPost('Maestro_Precios', enc);
-    for(let i=0;i<nuevas.length;i+=50) {
-      await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({accion:'batch',hoja:'Maestro_Precios',filas:nuevas.slice(i,i+50)})});
-    }
-  } catch(e) { console.warn('Error actualizando maestro:', e); }
-
   const statusEl = document.getElementById('xml-reg-status');
   if(statusEl) {
     statusEl.style.color = totalErrores === 0 ? '#2e7d32' : '#e65100';
     statusEl.innerHTML = `✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).
-      ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Quedan '+xmlPendienteMapeo.length+' ítems sin mapeo.' : ''}`;
+      ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Pasando a revisar '+xmlPendienteMapeo.length+' ítems sin mapeo...' : ''}`;
+  }
+
+  // Si quedan pendientes, llevar al flujo de revisión. Si no, reset y volver al paso 1.
+  if(xmlPendienteMapeo.length > 0) {
+    setTimeout(() => revisarMapeoXML(), 1500);
+    return;
   }
 
   setTimeout(() => {
@@ -2228,88 +2236,22 @@ async function registrarFactura() {
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
     await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
 
-    // ── Actualizar Maestro_Precios y completar SALIDAS REALES sin precio ──────
-    btn.textContent = 'Actualizando precios...';
+    // ── Actualizar Maestro_Precios en memoria (sin reescribir Sheets) ──────
+    // Los precios nuevos quedan en maestroPrecios para uso de la sesión actual.
+    // Para persistir cambios al Maestro, hay un botón aparte (futuro).
     try {
-      // Construir mapa de precios de esta factura: ingrediente -> precio/kg con IVA
-      const preciosFactura = {};
       itemsF.forEach(it => {
         const factor = getKgFactor(it.desc, it.umEdit||it.um);
         const pxkg = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
         const nombre = (it.mapeo||it.desc).trim().toUpperCase();
-        preciosFactura[nombre] = Math.round(pxkg);
+        const precioNuevo = Math.round(pxkg);
+        if(precioNuevo > 0) {
+          if(maestroPrecios[nombre]) maestroPrecios[nombre].precio = precioNuevo;
+          else maestroPrecios[nombre] = {nombre: it.mapeo||it.desc, um: it.umEdit||it.um||'Kg', precio: precioNuevo, proveedor: prov};
+        }
       });
-
-      // Leer Maestro_Precios
-      const maestroRows = await gsGet('Maestro_Precios');
-      const encMaestro = maestroRows[0];
-      let maestroActualizado = false;
-      const nuevoMaestro = maestroRows.map((r, idx) => {
-        if(idx === 0) return r;
-        const fila = [...r];
-        const nombre = (fila[0]||'').toString().trim().toUpperCase();
-        const precioNuevo = preciosFactura[nombre];
-        const precioActual = parseFloat(fila[2])||0;
-        if(precioNuevo && precioNuevo > 0) {
-          // Actualizar si no tiene precio o el nuevo difiere más de 2%
-          const difPct = precioActual > 0 ? Math.abs(precioNuevo - precioActual) / precioActual : 1;
-          if(precioActual === 0 || difPct > 0.02) {
-            fila[2] = precioNuevo;
-            // Actualizar también en maestroPrecios en memoria
-            if(maestroPrecios[nombre]) maestroPrecios[nombre].precio = precioNuevo;
-            else maestroPrecios[nombre] = {nombre: fila[0], um: fila[1]||'Kg', precio: precioNuevo, proveedor: prov};
-            maestroActualizado = true;
-          }
-        }
-        return fila;
-      });
-
-      if(maestroActualizado) {
-        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({accion:'clear', hoja:'Maestro_Precios'})});
-        await gsPost('Maestro_Precios', encMaestro);
-        for(let i=1; i<nuevoMaestro.length; i+=50) {
-          await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({accion:'batch', hoja:'Maestro_Precios', filas: nuevoMaestro.slice(i,i+50)})});
-        }
-      }
-
-      // Completar SALIDAS REALES sin precio usando el maestroPrecios actualizado
-      btn.textContent = 'Completando salidas sin precio...';
-      const movRows = await gsGet('Movimientos');
-      const encMov = movRows[0];
-      let movActualizado = 0;
-      const nuevosMov = movRows.map((r, idx) => {
-        if(idx === 0) return r;
-        const fila = [...r];
-        const tipo = (fila[1]||'').toString().trim().toUpperCase();
-        if(tipo !== 'SALIDA REAL') return fila;
-        const precioActual = fila[5] ? parseFloat(String(fila[5]).replace(',','')) : 0;
-        const cant = parseFloat(fila[3])||0;
-        if(precioActual > 0 || cant === 0) return fila; // ya tiene precio
-        const nombre = (fila[2]||'').toString().trim().toUpperCase();
-        const infoMaestro = maestroPrecios[nombre];
-        const precio = infoMaestro ? infoMaestro.precio : 0;
-        if(precio > 0) {
-          fila[5] = precio;
-          fila[6] = Math.round(cant * precio);
-          movActualizado++;
-        }
-        return fila;
-      });
-
-      if(movActualizado > 0) {
-        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({accion:'clear', hoja:'Movimientos'})});
-        await gsPost('Movimientos', encMov);
-        for(let i=1; i<nuevosMov.length; i+=50) {
-          await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({accion:'batch', hoja:'Movimientos', filas: nuevosMov.slice(i,i+50)})});
-        }
-      }
     } catch(ePrecio) {
-      console.warn('Error actualizando precios:', ePrecio);
-      // No es crítico — la factura ya quedó registrada
+      console.warn('Error actualizando precios en memoria:', ePrecio);
     }
     // Guardar proveedor nuevo si no estaba en la lista
     if(prov && ![...document.getElementById('fprov-list').options].map(o=>o.value).includes(prov)) {
@@ -2323,8 +2265,29 @@ async function registrarFactura() {
     fok.style.display='block';
     fok.style.background='#e8f5e9';
     fok.style.color='#1b5e20';
-    fok.innerHTML=`✓ ${nItems} ítems registrados correctamente.<br><span style="font-size:12px;opacity:0.8">Volviendo al inicio en 3 segundos...</span>`;
+    fok.innerHTML=`✓ ${nItems} ítems registrados correctamente.<br><span style="font-size:12px;opacity:0.8">${tipoF==='xml' && xmlPendienteMapeo.length > nItems ? 'Pasando a la siguiente factura...' : 'Volviendo al inicio en 3 segundos...'}</span>`;
     btn.textContent = '✓ Registrado';
+
+    // Si veníamos de un lote XML: remover esta factura del estado y avanzar
+    const veniaDeXML = tipoF === 'xml';
+    let nfactProcesado = nfact;
+    if(veniaDeXML) {
+      // Encontrar el índice de la factura registrada en xmlResultados
+      const idxFactRegistrada = xmlResultados.findIndex(f => f.folio === nfactProcesado);
+      // Quitar la factura registrada de xmlResultados
+      if(idxFactRegistrada >= 0) {
+        xmlResultados.splice(idxFactRegistrada, 1);
+      }
+      // Quitar de pendientes los ítems cuyo facturaIdx coincide con el de la factura eliminada,
+      // y reindexar los facturaIdx mayores (porque splice corrió los siguientes)
+      xmlPendienteMapeo = xmlPendienteMapeo
+        .filter(it => it.facturaIdx !== idxFactRegistrada)
+        .map(it => ({
+          ...it,
+          facturaIdx: it.facturaIdx > idxFactRegistrada ? it.facturaIdx - 1 : it.facturaIdx
+        }));
+    }
+
     setTimeout(() => {
       // Reset completo del formulario
       itemsF = [];
@@ -2332,6 +2295,21 @@ async function registrarFactura() {
       window._alertasPrecios = [];
       // Limpiar campos
       ['fprov','fnum','fobs'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+      fok.style.display='none';
+      btn.disabled = false;
+      btn.textContent = 'Registrar entrada →';
+
+      // Si quedan facturas XML pendientes, abrir la siguiente
+      if(veniaDeXML && xmlResultados.length > 0) {
+        // Volver al paso 1 visualmente, pero abrir directo la próxima revisión
+        revisarMapeoXML();
+        cargarMovimientos();
+        return;
+      }
+
+      // Si no, reset completo del estado XML y volver al inicio
+      xmlResultados = [];
+      xmlPendienteMapeo = [];
       // Resetear zona de upload — recrear el input file
       const dropzone = document.getElementById('fdropzone');
       if(dropzone) {
@@ -2356,18 +2334,199 @@ async function registrarFactura() {
             <span style="font-size:11px;color:#aaa">Foto: luz uniforme · factura plana · encuadra toda la hoja</span>
           </div>`;
       }
-      fok.style.display='none';
-      btn.disabled = false;
-      btn.textContent = 'Registrar entrada →';
+      // Limpiar también el área de procesamiento XML
+      const dzp = document.getElementById('dzp');
+      if(dzp) dzp.innerHTML = '';
       fGo(1);
       cargarMovimientos();
-    }, 3000);
+    }, veniaDeXML && xmlResultados.length > 0 ? 1500 : 3000);
   } catch(e) {
     console.error('Error registrarFactura:', e);
     alert('⚠ Error al registrar: ' + e.message + '\n\nTus datos están intactos. Intenta de nuevo.');
     btn.disabled = false;
     btn.textContent = 'Registrar entrada →';
   }
+}
+
+// ── REVISIÓN Y ACTUALIZACIÓN DE PRECIOS DEL MAESTRO ──────────────────────────
+let preciosComparacion = []; // [{nombre, precioActual, precioNuevo, fecha, dif, marcado}]
+
+async function abrirRevisionPrecios() {
+  document.getElementById('precios-modal').style.display = 'block';
+  document.getElementById('precios-status').innerHTML = '<span class="spin"></span> Leyendo Movimientos y Maestro...';
+  document.getElementById('precios-tabla').innerHTML = '';
+  document.getElementById('precios-actions').style.display = 'none';
+
+  try {
+    const [maestroRows, movRows] = await Promise.all([
+      gsGet('Maestro_Precios'),
+      gsGet('Movimientos')
+    ]);
+
+    // Construir mapa de últimos precios de ENTRADA por producto
+    // Movimientos: [fecha, tipo, ingrediente, cant, um, precio, total, nfact, prov, usuario, obs]
+    const ultimoPrecio = {}; // { NOMBRE_UPPER: { precio, fecha, prov } }
+    movRows.slice(1).forEach(r => {
+      const tipo = (r[1]||'').toString().trim().toUpperCase();
+      if(tipo !== 'ENTRADA') return;
+      const nombre = (r[2]||'').toString().trim().toUpperCase();
+      const precio = parseFloat(String(r[5]||'').replace(',',''))||0;
+      const fechaStr = r[0] ? r[0].toString() : '';
+      if(!nombre || precio <= 0) return;
+      // Convertir fecha a comparable (yyyy-mm-dd o lo que venga)
+      const fechaComp = parseFechaComparable(fechaStr);
+      const prev = ultimoPrecio[nombre];
+      if(!prev || fechaComp > prev.fechaComp) {
+        ultimoPrecio[nombre] = { precio, fecha: fechaStr, fechaComp, prov: r[8]||'' };
+      }
+    });
+
+    // Comparar con Maestro
+    preciosComparacion = [];
+    maestroRows.slice(1).forEach(r => {
+      const nombreOrig = (r[0]||'').toString().trim();
+      if(!nombreOrig) return;
+      const nombre = nombreOrig.toUpperCase();
+      const precioActual = parseFloat(r[2]||0)||0;
+      const ultimo = ultimoPrecio[nombre];
+      if(!ultimo) return; // sin movimientos recientes
+      if(ultimo.precio === precioActual) return; // sin cambios
+      const dif = precioActual > 0 ? ((ultimo.precio - precioActual) / precioActual * 100) : 100;
+      preciosComparacion.push({
+        nombre: nombreOrig,
+        precioActual,
+        precioNuevo: ultimo.precio,
+        fecha: ultimo.fecha,
+        prov: ultimo.prov,
+        dif,
+        marcado: Math.abs(dif) <= 10 // por defecto, marcados los cambios moderados; los grandes requieren revisión
+      });
+    });
+
+    // Ordenar por |dif| descendente
+    preciosComparacion.sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif));
+
+    if(preciosComparacion.length === 0) {
+      document.getElementById('precios-status').innerHTML = '✓ El Maestro está al día. No hay cambios pendientes.';
+      return;
+    }
+
+    document.getElementById('precios-status').innerHTML =
+      `<strong>${preciosComparacion.length}</strong> producto(s) con precio diferente. Revisa y marca los que quieras actualizar.`;
+
+    renderTablaPrecios();
+    document.getElementById('precios-actions').style.display = 'flex';
+  } catch(e) {
+    document.getElementById('precios-status').innerHTML = '<span style="color:#c62828">⚠ Error: ' + e.message + '</span>';
+  }
+}
+
+function parseFechaComparable(s) {
+  // Acepta yyyy-mm-dd, dd/mm/yyyy, o lo que venga
+  if(!s) return '';
+  const str = s.toString().trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(str)) return str.substring(0,10);
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  return str;
+}
+
+function renderTablaPrecios() {
+  const html = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead style="position:sticky;top:0;background:#f5f5f7;z-index:1">
+        <tr>
+          <th style="padding:8px;text-align:center;border-bottom:1px solid #ddd;width:40px"></th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd">Producto</th>
+          <th style="padding:8px;text-align:right;border-bottom:1px solid #ddd">Actual</th>
+          <th style="padding:8px;text-align:right;border-bottom:1px solid #ddd">Nuevo</th>
+          <th style="padding:8px;text-align:right;border-bottom:1px solid #ddd">Var %</th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Fecha · Proveedor</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${preciosComparacion.map((p,i) => {
+          const alerta = Math.abs(p.dif) > 10;
+          const colorVar = p.dif > 0 ? '#c62828' : '#2e7d32';
+          const bgRow = alerta ? '#fff3e0' : 'transparent';
+          return `
+            <tr style="background:${bgRow};border-bottom:1px solid #f0f0f0">
+              <td style="padding:6px;text-align:center">
+                <input type="checkbox" ${p.marcado?'checked':''} onchange="preciosComparacion[${i}].marcado=this.checked" style="width:18px;height:18px;cursor:pointer">
+              </td>
+              <td style="padding:6px">${p.nombre}</td>
+              <td style="padding:6px;text-align:right">$${p.precioActual.toLocaleString('es-CL')}</td>
+              <td style="padding:6px;text-align:right;font-weight:600">$${p.precioNuevo.toLocaleString('es-CL')}</td>
+              <td style="padding:6px;text-align:right;color:${colorVar};font-weight:${alerta?'700':'400'}">
+                ${p.dif>0?'+':''}${p.dif.toFixed(1)}%${alerta?' ⚠':''}
+              </td>
+              <td style="padding:6px;font-size:11px;color:#666">${p.fecha||'—'}<br>${p.prov||''}</td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  document.getElementById('precios-tabla').innerHTML = html;
+}
+
+function toggleSeleccionPrecios(marcar) {
+  preciosComparacion.forEach(p => p.marcado = marcar);
+  renderTablaPrecios();
+}
+
+async function aplicarActualizacionPrecios() {
+  const seleccionados = preciosComparacion.filter(p => p.marcado);
+  if(seleccionados.length === 0) {
+    alert('No hay productos marcados.');
+    return;
+  }
+  if(!confirm(`¿Actualizar ${seleccionados.length} precio(s) en Maestro_Precios?`)) return;
+
+  const btn = document.getElementById('btn-aplicar-precios');
+  btn.disabled = true;
+  btn.textContent = 'Aplicando...';
+
+  // Construir payload para updateRows: solo columna 2 (precio)
+  const updates = seleccionados.map(p => ({
+    key: p.nombre,
+    cols: { 2: p.precioNuevo }
+  }));
+
+  try {
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        accion: 'updateRows',
+        hoja: 'Maestro_Precios',
+        keyCol: 0,
+        updates: updates
+      })
+    });
+    const json = await r.json();
+    if(!json.ok) throw new Error(json.error || 'Error desconocido');
+
+    // Actualizar también en memoria
+    seleccionados.forEach(p => {
+      const k = p.nombre.toUpperCase();
+      if(maestroPrecios[k]) maestroPrecios[k].precio = p.precioNuevo;
+    });
+
+    let msg = `✓ ${json.updated} precio(s) actualizado(s) en Maestro.`;
+    if(json.notFound && json.notFound.length > 0) {
+      msg += `\n\n⚠ ${json.notFound.length} producto(s) no encontrados en Maestro:\n` + json.notFound.slice(0,5).join(', ');
+    }
+    alert(msg);
+    cerrarRevisionPrecios();
+  } catch(e) {
+    alert('⚠ Error al actualizar: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Aplicar cambios marcados →';
+  }
+}
+
+function cerrarRevisionPrecios() {
+  document.getElementById('precios-modal').style.display = 'none';
+  preciosComparacion = [];
 }
 
 // ── MOVIMIENTOS ───────────────────────────────────────────────────────────────
