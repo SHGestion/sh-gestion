@@ -426,6 +426,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
         <thead><tr>
           <th>Preparación</th><th>Ingrediente</th>
           <th>Raciones</th><th>Plan (kg)</th>
+          <th>Stock (kg)</th>
           <th>Real (kg)</th><th>Diferencia</th><th>Tipo</th>
         </tr></thead>
         <tbody id="ctbody"></tbody>
@@ -859,6 +860,7 @@ let tipoF = '';
 let mapeosFacturas = {};
 let ingredientesDia = [];
 let filasExtra = [];
+let stockDia = {}; // stock actual por ingrediente (UPPERCASE), calculado al cargarDia
 
 // ── UTILIDADES ───────────────────────────────────────────────────────────────
 function parseFecha(raw) {
@@ -979,19 +981,67 @@ Object.entries(FAMILIAS).forEach(([familia, ings]) => {
   ings.forEach(ing => { ING_A_FAMILIA[ing.toUpperCase()] = familia; });
 });
 
+// Subgrupos por palabras clave: si el ingrediente contiene CUALQUIERA de estas keywords,
+// sus alternativas son productos del MISMO subgrupo (todos los keywords del subgrupo).
+const SUBGRUPOS = [
+  { nombre: 'Sopas/caldos',       keys: ['SOPA','CALDO','CREMA DE','CONSOMÉ','CONSOME'] },
+  { nombre: 'Postres semielaborados', keys: ['JALEA','FLAN','MOUSSE','BAVAROIS','NATILLA','SEMOLA','SÉMOLA','ARROZ CON LECHE'] },
+  { nombre: 'Aceites',            keys: ['ACEITE'] },
+  { nombre: 'Vinagres',           keys: ['VINAGRE','ACETO'] },
+  { nombre: 'Salsas frías',       keys: ['MAYONESA','MOSTAZA','KETCHUP','SALSA TABASCO','SALSA SOYA','SALSA DE SOYA','SALSA BBQ','SALSA BARBACOA','SALSA AMERICANA'] },
+  { nombre: 'Salsas para cocinar',keys: ['SALSA DE TOMATE','SALSA BLANCA','SALSA CARAMELO','SALSA ESPANOLA','PESTO','VINAGRETA'] },
+  { nombre: 'Aceitunas y encurtidos', keys: ['ACEITUNA','ALCAPARRA','PEPINILLO','PICKLE'] },
+  { nombre: 'Especias y aliños',  keys: ['SAL','PIMIENTA','ORÉGANO','OREGANO','CURRY','CANELA','AJI','AJÍ','MERKEN','TOMILLO','ROMERO','LAUREL','COMINO','NUEZ MOSCADA','AZAFRAN','AZAFRÁN','CURCUMA','CÚRCUMA','ESTRAGON','ESTRAGÓN','ANIS','ANÍS','CLAVOS','ENELDO','ALIÑO','COLORANTE'] },
+  { nombre: 'Harinas y panificación', keys: ['HARINA','PAN RALLADO','POLVO HORNEAR','POLVO DE HORNEAR','LEVADURA','MAICENA','ALMIDON','ALMIDÓN','MEJORADOR','BASE APANAR','BASE HAMBURGUESA','PANQUEQUE'] },
+  { nombre: 'Azúcares y endulzantes', keys: ['AZUCAR','AZÚCAR','CHANCADA','MANJAR','MERENGUE'] },
+  { nombre: 'Repostería',         keys: ['COCO','COBERTURA','CACAO','CHOCOLATE','ESENCIA','EXTRACTO','PASAS','NUECES','ALMENDRA','PISTACHO','FRUTOS SECOS','COLAPEZ','CREMA PASTELERA','CHANTILLY'] },
+  { nombre: 'Jugos',              keys: ['JUGO'] },
+  { nombre: 'Vinos y licores',    keys: ['VINO','OPORTO','JEREZ','RON','COGNAC','LICOR','TRIPLE SEC'] },
+  { nombre: 'Panes',              keys: ['PAN HALLULLA','PAN MARRAQUETA','PAN AMASADO','PAN MOLDE','PAN BAGUETTE','PAN INTEGRAL','PAN CORRIENTE','PAN FRICA','PAN COTIDIANO','PAN PITA','PAN CROISSANT','PAN ESPECIAL','PAN RUSTICO','PAN RÚSTICO','PAN LENGUA','PAN TAPADITO','PAN CONG'] },
+  { nombre: 'Conservas de mar',   keys: ['JUREL','ATUN','ATÚN','SARDINA','CHORITOS','CHOLGAS','KANIKAMA'] },
+  { nombre: 'Otras conservas',    keys: ['PALMITO','CHAMPINONES AL JUGO','CHAMPIÑONES AL JUGO'] },
+  { nombre: 'Lácteos líquidos',   keys: ['LECHE LARGA','LECHE LIQUIDA','LECHE LÍQUIDA','LECHE SIN LACTOSA','CREMA DE LECHE','CREMA LECHE','YOGURT'] },
+  { nombre: 'Leches en polvo',    keys: ['LECHE EN POLVO','LECHE POLVO','LECHE ASADA'] },
+  { nombre: 'Leches concentradas',keys: ['LECHE CONDENSADA','LECHE EVAPORADA'] },
+  { nombre: 'Quesos duros',       keys: ['QUESO RALLADO','QUESO PARMESANO','QUESO CHANCO','QUESO GAUDA','QUESO MANTECOSO','QUESO GRUYERE','QUESO EDAM','QUESO HEBRA','QUESO CABEZA'] },
+  { nombre: 'Quesos blandos',     keys: ['QUESO MOZARELLA','QUESO FRESCO','QUESO CREMA','QUESILLO','QUESO FILADELFIA','RICOTTA'] },
+  { nombre: 'Mantequillas y margarinas', keys: ['MANTEQUILLA','MARGARINA'] },
+  { nombre: 'Huevos',             keys: ['HUEVO','ALBUMINA','ALBÚMINA'] }
+];
+
+function getSubgrupo(ingredienteUpper) {
+  for(const sg of SUBGRUPOS) {
+    if(sg.keys.some(k => ingredienteUpper.includes(k))) return sg;
+  }
+  return null;
+}
+
 function getFamiliaAlternativas(ing, stockActual) {
-  const familia = ING_A_FAMILIA[ing.toUpperCase()];
+  const ingUp = ing.toUpperCase();
+  const familia = ING_A_FAMILIA[ingUp];
   if(!familia) return [];
   const miembros = FAMILIAS[familia] || [];
-  // Filtrar los que tienen stock > 0 y no son el mismo ingrediente
-  return miembros
-    .filter(m => m.toUpperCase() !== ing.toUpperCase())
+  const subgrupo = getSubgrupo(ingUp);
+
+  // Filtro 1: candidatos con stock > 0 y distintos del original
+  let candidatos = miembros
+    .filter(m => m.toUpperCase() !== ingUp)
     .map(m => ({
       nombre: m,
       stock: stockActual[m.toUpperCase()] || 0
     }))
-    .filter(m => m.stock > 0)
-    .sort((a,b) => b.stock - a.stock);
+    .filter(m => m.stock > 0);
+
+  // Filtro 2: si hay subgrupo identificado, filtrar por palabras clave del subgrupo
+  if(subgrupo) {
+    const candidatosSub = candidatos.filter(c =>
+      subgrupo.keys.some(k => c.nombre.toUpperCase().includes(k))
+    );
+    // Si el filtro por subgrupo da resultados, usarlos. Si no, fallback a la familia entera.
+    if(candidatosSub.length > 0) candidatos = candidatosSub;
+  }
+
+  return candidatos.sort((a,b) => b.stock - a.stock);
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
@@ -1286,6 +1336,8 @@ async function cargarDia() {
         : `✓ ${regCount} ingredientes registrados`)
     : `${ingredientesDia.length} ingredientes planificados`;
   document.getElementById('ctable-wrap').style.display = 'block';
+  // Calcular stock actual una vez para mostrarlo en la columna y para alternativas
+  try { stockDia = await calcularStockActual(); } catch(e) { stockDia = {}; }
   renderC();
 }
 
@@ -1327,18 +1379,46 @@ function renderC() {
       ? `<span style="font-size:12px;color:#888">${row.raciones||''}</span>`
       : `<input type="number" min="0" step="1" value="${row.racActual||row.raciones||''}" style="font-size:12px;width:55px;text-align:right" onchange="updRaciones(${i},this.value)">`;
 
+    // Stock disponible: calcular y formatear con color según suficiencia
+    const ingKey = (row.ing||'').toUpperCase();
+    const stockKg = stockDia[ingKey] !== undefined ? stockDia[ingKey] : null;
+    const requerido = isNaN(r) ? row.plan : Math.max(realVal, row.plan);
+    let stockHtml = '<span style="color:#bbb">—</span>';
+    if(stockKg !== null) {
+      const insuficiente = stockKg < requerido - 0.001;
+      const cero = stockKg <= 0.001;
+      const colorStk = cero ? '#c62828' : insuficiente ? '#e65100' : '#2e7d32';
+      const peso = (cero || insuficiente) ? '700' : '400';
+      const icono = cero ? '⛔' : insuficiente ? '⚠' : '';
+      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px">${icono} ${stockKg.toFixed(3)}</span>`;
+    }
+
     tb.innerHTML += `<tr id="crow-${i}">
       <td>${prepH}</td>
       <td>${ingH}</td>
       <td style="text-align:right">${racH}</td>
       <td style="text-align:right;color:#888;font-size:12px">${row.plan.toFixed(3)}</td>
+      <td style="text-align:right">${stockHtml}</td>
       <td><input type="number" step="0.001" min="0" value="${row.real !== '' ? parseFloat(row.real).toFixed(3) : row.plan.toFixed(3)}" placeholder="${row.plan.toFixed(3)}"
           style="font-size:13px" onchange="updC(${i},'real',this.value)" id="cinput-${i}"></td>
       <td style="text-align:right;color:${dc};font-weight:600;font-size:13px">${ds}</td>
       <td style="font-size:12px;color:${dc}">${tipo}</td>
     </tr>
-    <tr id="calt-${i}" style="display:none"><td colspan="7" style="padding:0 8px 8px;background:#fff8e1"><div id="calt-inner-${i}" style="font-size:12px;color:#888"></div></td></tr>`;
+    <tr id="calt-${i}" style="display:none"><td colspan="8" style="padding:0 8px 8px;background:#fff8e1"><div id="calt-inner-${i}" style="font-size:12px;color:#888"></div></td></tr>`;
   });
+
+  // Mostrar alternativas automáticamente para los ingredientes con stock insuficiente
+  setTimeout(() => {
+    const todoAlt = [...ingredientesDia, ...filasExtra];
+    todoAlt.forEach((row, i) => {
+      const ingKey = (row.ing||'').toUpperCase();
+      const stk = stockDia[ingKey];
+      const requerido = parseFloat(row.real) || row.plan || 0;
+      if(stk !== undefined && requerido > 0 && stk < requerido - 0.001) {
+        mostrarAlternativasInline(i, row.ing, stockDia);
+      }
+    });
+  }, 50);
 }
 
 function updRaciones(i, v) {
@@ -1362,8 +1442,10 @@ function mostrarAlternativasInline(i, ing, stockActual) {
     return;
   }
   altRow.style.display = '';
-  const familia = ING_A_FAMILIA[ing.toUpperCase()] || 'misma familia';
-  altInner.innerHTML = `<strong>Alternativas disponibles (${familia}):</strong>
+  const ingUp = ing.toUpperCase();
+  const subgrupo = getSubgrupo(ingUp);
+  const etiqueta = subgrupo ? subgrupo.nombre : (ING_A_FAMILIA[ingUp] || 'misma familia');
+  altInner.innerHTML = `<strong>Alternativas disponibles (${etiqueta}):</strong>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
       ${alts.slice(0,6).map(a =>
         `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
