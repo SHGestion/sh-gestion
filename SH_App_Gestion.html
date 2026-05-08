@@ -282,8 +282,14 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       <button class="btn" style="width:100%;font-size:13px;padding:10px" onclick="abrirRevisionPrecios()">
         💲 Actualizar precios del Maestro desde Movimientos
       </button>
-      <div style="font-size:11px;color:#888;text-align:center;margin-top:4px">
+      <div style="font-size:11px;color:#888;text-align:center;margin-top:4px;margin-bottom:10px">
         Compara últimos precios registrados con el Maestro y aplica los cambios que confirmes
+      </div>
+      <button class="btn" style="width:100%;font-size:13px;padding:10px" onclick="abrirDetectorFaltantes()">
+        🔍 Detectar productos faltantes en Maestro
+      </button>
+      <div style="font-size:11px;color:#888;text-align:center;margin-top:4px">
+        Encuentra productos usados en Movimientos que no están en el Maestro
       </div>
     </div>
   </div>
@@ -358,6 +364,28 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
         <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionPrecios(true)">✓ Marcar todos</button>
         <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionPrecios(false)">○ Desmarcar todos</button>
         <button class="btn btnp" style="flex:2;padding:9px" id="btn-aplicar-precios" onclick="aplicarActualizacionPrecios()">Aplicar cambios marcados →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Detector de productos faltantes en Maestro -->
+  <div id="faltantes-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;padding:20px">
+    <div style="max-width:900px;margin:20px auto;background:#fff;border-radius:12px;padding:18px;box-shadow:0 8px 24px rgba(0,0,0,0.2)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div>
+          <strong style="font-size:16px">Productos faltantes en Maestro</strong>
+          <div style="font-size:12px;color:#888">Detectados desde Movimientos y mapeos de facturas</div>
+        </div>
+        <button class="btn" style="padding:6px 12px" onclick="cerrarDetectorFaltantes()">✕ Cerrar</button>
+      </div>
+      <div id="faltantes-status" style="font-size:13px;color:#888;margin-bottom:10px">
+        <span class="spin"></span> Buscando...
+      </div>
+      <div id="faltantes-tabla" style="max-height:60vh;overflow-y:auto;border:1px solid #eee;border-radius:8px"></div>
+      <div id="faltantes-actions" style="display:none;margin-top:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionFaltantes(true)">✓ Marcar todos</button>
+        <button class="btn" style="flex:1;padding:9px" onclick="toggleSeleccionFaltantes(false)">○ Desmarcar todos</button>
+        <button class="btn btnp" style="flex:2;padding:9px" id="btn-aplicar-faltantes" onclick="agregarFaltantesAMaestro()">Agregar marcados al Maestro →</button>
       </div>
     </div>
   </div>
@@ -2527,6 +2555,202 @@ async function aplicarActualizacionPrecios() {
 function cerrarRevisionPrecios() {
   document.getElementById('precios-modal').style.display = 'none';
   preciosComparacion = [];
+}
+
+// ── DETECTOR DE PRODUCTOS FALTANTES EN MAESTRO ────────────────────────────────
+let faltantesDetectados = []; // [{nombre, usos, ultimoPrecio, ultimaUm, ultimoProv, ultimaFecha, marcado}]
+
+async function abrirDetectorFaltantes() {
+  document.getElementById('faltantes-modal').style.display = 'block';
+  document.getElementById('faltantes-status').innerHTML = '<span class="spin"></span> Leyendo Movimientos y Mapeos...';
+  document.getElementById('faltantes-tabla').innerHTML = '';
+  document.getElementById('faltantes-actions').style.display = 'none';
+
+  try {
+    const [maestroRows, movRows, mapRows] = await Promise.all([
+      gsGet('Maestro_Precios'),
+      gsGet('Movimientos'),
+      gsGet('Mapeos_Facturas').catch(() => [[]]) // por si no existe
+    ]);
+
+    // Set de nombres ya en Maestro (UPPERCASE)
+    const enMaestro = new Set();
+    maestroRows.slice(1).forEach(r => {
+      const n = (r[0]||'').toString().trim().toUpperCase();
+      if(n) enMaestro.add(n);
+    });
+
+    // Acumular productos desde Movimientos: nombre, conteo, último precio, etc.
+    const acumulado = {}; // { NOMBRE: { usos, ultimoPrecio, ultimaUm, ultimoProv, ultimaFecha, fechaComp } }
+    movRows.slice(1).forEach(r => {
+      const nombre = (r[2]||'').toString().trim();
+      if(!nombre) return;
+      const key = nombre.toUpperCase();
+      const um = (r[4]||'Kg').toString().trim() || 'Kg';
+      const precio = parseFloat(String(r[5]||'').replace(',',''))||0;
+      const fechaStr = r[0] ? r[0].toString() : '';
+      const fechaComp = parseFechaComparable(fechaStr);
+      const prov = (r[8]||'').toString().trim();
+      if(!acumulado[key]) {
+        acumulado[key] = {nombre, usos:0, ultimoPrecio:0, ultimaUm:um, ultimoProv:prov, ultimaFecha:fechaStr, fechaComp};
+      }
+      acumulado[key].usos++;
+      // Actualizar último dato si esta fila es más reciente
+      if(fechaComp >= acumulado[key].fechaComp) {
+        acumulado[key].fechaComp = fechaComp;
+        acumulado[key].ultimaFecha = fechaStr;
+        if(precio > 0) acumulado[key].ultimoPrecio = precio;
+        if(um) acumulado[key].ultimaUm = um;
+        if(prov) acumulado[key].ultimoProv = prov;
+      }
+    });
+
+    // Acumular también desde Mapeos_Facturas (columna B = ingrediente mapeado)
+    if(mapRows && mapRows.length > 1) {
+      mapRows.slice(1).forEach(r => {
+        const mapeado = (r[1]||'').toString().trim();
+        if(!mapeado) return;
+        const key = mapeado.toUpperCase();
+        if(!acumulado[key]) {
+          acumulado[key] = {nombre:mapeado, usos:0, ultimoPrecio:0, ultimaUm:'Kg', ultimoProv:'', ultimaFecha:'', fechaComp:''};
+        }
+        // Si solo viene de mapeos sin movimientos, marcamos uso=0 pero existe
+      });
+    }
+
+    // Filtrar los que NO están en Maestro
+    faltantesDetectados = Object.entries(acumulado)
+      .filter(([key, _]) => !enMaestro.has(key))
+      .map(([key, v]) => ({
+        nombre: v.nombre,
+        usos: v.usos,
+        ultimoPrecio: v.ultimoPrecio,
+        ultimaUm: v.ultimaUm,
+        ultimoProv: v.ultimoProv,
+        ultimaFecha: v.ultimaFecha,
+        marcado: v.usos >= 1 // por defecto marcados los que tienen al menos 1 movimiento
+      }))
+      .sort((a, b) => b.usos - a.usos); // más usados primero
+
+    if(faltantesDetectados.length === 0) {
+      document.getElementById('faltantes-status').innerHTML = '✓ Todos los productos usados ya están en el Maestro.';
+      return;
+    }
+
+    document.getElementById('faltantes-status').innerHTML =
+      `<strong>${faltantesDetectados.length}</strong> producto(s) usado(s) que NO están en Maestro. Revisa, edita nombres si hay errores de tipeo, y marca los que quieras agregar.`;
+
+    renderTablaFaltantes();
+    document.getElementById('faltantes-actions').style.display = 'flex';
+  } catch(e) {
+    document.getElementById('faltantes-status').innerHTML = '<span style="color:#c62828">⚠ Error: ' + e.message + '</span>';
+  }
+}
+
+function renderTablaFaltantes() {
+  const html = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead style="position:sticky;top:0;background:#f5f5f7;z-index:1">
+        <tr>
+          <th style="padding:8px;text-align:center;border-bottom:1px solid #ddd;width:40px"></th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd">Producto</th>
+          <th style="padding:8px;text-align:center;border-bottom:1px solid #ddd;width:50px">Usos</th>
+          <th style="padding:8px;text-align:center;border-bottom:1px solid #ddd;width:60px">UM</th>
+          <th style="padding:8px;text-align:right;border-bottom:1px solid #ddd">Último precio</th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Proveedor / Fecha</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${faltantesDetectados.map((p,i) => `
+          <tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:6px;text-align:center">
+              <input type="checkbox" ${p.marcado?'checked':''} onchange="faltantesDetectados[${i}].marcado=this.checked" style="width:18px;height:18px;cursor:pointer">
+            </td>
+            <td style="padding:6px">
+              <input type="text" value="${p.nombre.replace(/"/g,'&quot;')}" style="width:100%;font-size:12px;border:1px solid #eee;padding:4px;border-radius:4px"
+                onchange="faltantesDetectados[${i}].nombre=this.value">
+            </td>
+            <td style="padding:6px;text-align:center;font-weight:${p.usos>=3?'700':'400'};color:${p.usos>=3?'#1976d2':'#888'}">${p.usos}</td>
+            <td style="padding:6px;text-align:center">
+              <select style="font-size:11px" onchange="faltantesDetectados[${i}].ultimaUm=this.value">
+                <option value="Kg"${p.ultimaUm==='Kg'?' selected':''}>Kg</option>
+                <option value="Un"${p.ultimaUm==='Un'?' selected':''}>Un</option>
+                <option value="Lt"${p.ultimaUm==='Lt'?' selected':''}>Lt</option>
+              </select>
+            </td>
+            <td style="padding:6px;text-align:right">
+              <input type="number" value="${p.ultimoPrecio}" style="width:80px;font-size:12px;text-align:right;border:1px solid #eee;padding:4px;border-radius:4px"
+                onchange="faltantesDetectados[${i}].ultimoPrecio=parseFloat(this.value)||0">
+            </td>
+            <td style="padding:6px;font-size:11px;color:#666">${p.ultimoProv||'—'}<br>${p.ultimaFecha||''}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  document.getElementById('faltantes-tabla').innerHTML = html;
+}
+
+function toggleSeleccionFaltantes(marcar) {
+  faltantesDetectados.forEach(p => p.marcado = marcar);
+  renderTablaFaltantes();
+}
+
+async function agregarFaltantesAMaestro() {
+  const seleccionados = faltantesDetectados.filter(p => p.marcado && p.nombre.trim());
+  if(seleccionados.length === 0) {
+    alert('No hay productos marcados.');
+    return;
+  }
+  if(!confirm(`¿Agregar ${seleccionados.length} producto(s) al Maestro_Precios?`)) return;
+
+  const btn = document.getElementById('btn-aplicar-faltantes');
+  btn.disabled = true;
+  btn.textContent = 'Agregando...';
+
+  try {
+    // Construir filas: [nombre, um, precio, proveedor]
+    const filas = seleccionados.map(p => [
+      p.nombre.trim(),
+      p.ultimaUm || 'Kg',
+      p.ultimoPrecio || 0,
+      p.ultimoProv || ''
+    ]);
+
+    // Usar batch para agregar todas de una sola vez
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        accion: 'batch',
+        hoja: 'Maestro_Precios',
+        filas: filas
+      })
+    });
+    const json = await r.json();
+    if(!json.ok) throw new Error(json.error || 'Error desconocido');
+
+    // Actualizar también en memoria
+    seleccionados.forEach(p => {
+      const k = p.nombre.trim().toUpperCase();
+      maestroPrecios[k] = {
+        nombre: p.nombre.trim(),
+        um: p.ultimaUm || 'Kg',
+        precio: p.ultimoPrecio || 0,
+        proveedor: p.ultimoProv || ''
+      };
+    });
+
+    alert(`✓ ${seleccionados.length} producto(s) agregado(s) al Maestro.`);
+    cerrarDetectorFaltantes();
+  } catch(e) {
+    alert('⚠ Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Agregar marcados al Maestro →';
+  }
+}
+
+function cerrarDetectorFaltantes() {
+  document.getElementById('faltantes-modal').style.display = 'none';
+  faltantesDetectados = [];
 }
 
 // ── MOVIMIENTOS ───────────────────────────────────────────────────────────────
