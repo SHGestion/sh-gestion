@@ -910,11 +910,56 @@ async function gsPost(hoja, fila) {
 }
 
 // ── CONVERSIÓN UNIDADES ──────────────────────────────────────────────────────
+// Wrapper que respeta factorAprendido (C) y esKgDirecto (B) antes de heurística
+function getKgFactorItem(it) {
+  if(!it) return 1;
+  // Prioridad 1: factor aprendido de Mapeos_Facturas
+  if(it.factorAprendido && it.factorAprendido > 0) return it.factorAprendido;
+  // Prioridad 2: Kg directo (carnicería al detalle, cantidad ya en kg)
+  if(it.esKgDirecto) return 1;
+  // Prioridad 3: heurística normal (regex + palabras clave)
+  return getKgFactor(it.desc, it.umEdit || it.um);
+}
+
 function getKgFactor(desc, um) {
   const d = (desc||'').toLowerCase();
   const u = (um||'').toLowerCase();
+
+  // ── 1) Detectar formato declarado en el nombre (más confiable) ─────────────
+  // Patrones soportados:
+  //   "1X400 GR", "12X1 KG", "6X800 GR", "10X1 KG", "1 X 1 KG"
+  //   "400 GR" suelto, "1 KG", "2 KG", "500 ML", "1 LT"
+  const D = (desc||'').toUpperCase();
+
+  // a) Patrón NxM con unidad: "12X1 KG", "1X400 GR", "6 X 800 GR"
+  const mMulti = D.match(/(\d+)\s*X\s*(\d+(?:[.,]\d+)?)\s*(KG|KGS|GR|GRS|G|LT|LTS|L|CC|ML|MLS)\b/);
+  if(mMulti) {
+    const cantidad = parseInt(mMulti[1], 10);   // ej: 12 (cajas con 12 unidades)
+    const tamano = parseFloat(mMulti[2].replace(',', '.')); // ej: 1 (kg cada una)
+    const unidad = mMulti[3];
+    let factorEnKg = tamano;
+    if(unidad === 'GR' || unidad === 'GRS' || unidad === 'G') factorEnKg = tamano / 1000;
+    else if(unidad === 'ML' || unidad === 'MLS' || unidad === 'CC') factorEnKg = tamano / 1000;
+    // Asume densidad ~1 para líquidos
+    return cantidad * factorEnKg;
+  }
+
+  // b) Patrón simple "400 GR", "2 KG", "500 ML" al final o suelto
+  const mSimple = D.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*(KG|KGS|GR|GRS|G|LT|LTS|L|CC|ML|MLS)\b/);
+  if(mSimple) {
+    const tamano = parseFloat(mSimple[1].replace(',', '.'));
+    const unidad = mSimple[2];
+    if(unidad === 'KG' || unidad === 'KGS') return tamano;
+    if(unidad === 'LT' || unidad === 'LTS' || unidad === 'L') return tamano;
+    if(unidad === 'GR' || unidad === 'GRS' || unidad === 'G') return tamano / 1000;
+    if(unidad === 'ML' || unidad === 'MLS' || unidad === 'CC') return tamano / 1000;
+  }
+
+  // ── 2) Fallback: heurísticas por unidad de medida del XML ──────────────────
   if(u==='kg'||u==='kgs') return 1;
   if(u==='lt'||u==='lts'||u==='litros') return 1;
+
+  // ── 3) Fallback: heurísticas por palabra clave en el nombre ────────────────
   if(d.includes('fideo')||d.includes('spaghetti')||d.includes('pasta')) return 0.4;
   if(d.includes('huevo')) return 0.067;
   if(d.includes('aceite')&&!d.includes('oliva')) return 0.9;
@@ -1956,39 +2001,6 @@ function processFile(f) {
 }
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
-function parseXMLFactura(xmlText) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, 'text/xml');
-  const get = (tag) => {
-    const el = doc.getElementsByTagName(tag)[0];
-    return el ? el.textContent.trim() : '';
-  };
-  const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
-
-  const folio = get('Folio');
-  const fecha = get('FchEmis');
-  const proveedor = get('RznSoc');
-  const mntNeto = parseFloat(get('MntNeto'))||0;
-  const iva = parseFloat(get('IVA'))||0;
-  const tasaIVA = parseFloat(get('TasaIVA'))||19;
-  const mntTotal = parseFloat(get('MntTotal'))||0;
-  const factorIVA = 1 + tasaIVA/100;
-
-  const items = getAll('Detalle').map(d => {
-    const nmb = (d.getElementsByTagName('NmbItem')[0]?.textContent||'').trim();
-    const qty = parseFloat(d.getElementsByTagName('QtyItem')[0]?.textContent||0);
-    const um = (d.getElementsByTagName('UnmdItem')[0]?.textContent||'Und').trim();
-    const prcNeto = parseFloat(d.getElementsByTagName('PrcItem')[0]?.textContent||0);
-    const monto = parseFloat(d.getElementsByTagName('MontoItem')[0]?.textContent||0);
-    // Precio con IVA por unidad
-    const prcConIVA = Math.round(prcNeto * factorIVA);
-    const montoConIVA = Math.round(monto * factorIVA);
-    return { desc: nmb, qty, um, prcNeto, prcConIVA, monto, montoConIVA };
-  });
-
-  return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
-}
-
 // Cola de XMLs para procesar en modo masivo
 let xmlQueue = [];
 let xmlResultados = []; // facturas ya procesadas con mapeo aplicado
@@ -2009,12 +2021,21 @@ async function procesarXMLsMasivo(files) {
     <div id="xml-progreso" style="font-size:12px;color:#888"></div>
     <div class="prog" style="margin-top:8px"><div class="progf" id="xml-progbar" style="width:0%"></div></div>`;
 
-  // Cargar mapeos frescos
+  // Cargar mapeos frescos. Formato: { 'DESC XML': {nombre, factor} }
+  // Compatibilidad: si la fila no tiene columna D (factor), factor=null
   try {
     const mapRows = await gsGet('Mapeos_Facturas');
     if(mapRows && mapRows.length > 1) {
       mapRows.slice(1).forEach(r => {
-        if(r[0] && r[1]) mapeosFacturas[String(r[0]).trim().toUpperCase()] = String(r[1]).trim();
+        if(r[0] && r[1]) {
+          const key = String(r[0]).trim().toUpperCase();
+          const nombre = String(r[1]).trim();
+          const factor = r[3] !== undefined && r[3] !== '' ? parseFloat(r[3]) : null;
+          mapeosFacturas[key] = {
+            nombre,
+            factor: (factor && !isNaN(factor) && factor > 0) ? factor : null
+          };
+        }
       });
     }
   } catch(e) {}
@@ -2052,12 +2073,16 @@ async function procesarXMLsMasivo(files) {
 
       factura.items.forEach(it => {
         const key = it.desc.toUpperCase();
-        const mapeoManual = mapeosFacturas[key]; // Mapeo aprendido de facturas anteriores
-        let mapeoFinal = mapeoManual || '';
+        const mapeoMem = mapeosFacturas[key]; // {nombre, factor} | string (legacy) | undefined
+        // Normalizar (compatibilidad con mapeos viejos en formato string)
+        const mapeoNombre = mapeoMem ? (typeof mapeoMem === 'string' ? mapeoMem : mapeoMem.nombre) : '';
+        const factorAprendido = mapeoMem && typeof mapeoMem === 'object' ? mapeoMem.factor : null;
+
+        let mapeoFinal = mapeoNombre || '';
         let conf = 0;
         let scoreAprox = null;
 
-        if(mapeoManual) {
+        if(mapeoNombre) {
           // Mapeo aprendido — confianza alta
           conf = 1;
         } else if(maestroPrecios[key]) {
@@ -2078,7 +2103,7 @@ async function procesarXMLsMasivo(files) {
         const item = {
           desc: it.desc,
           mapeo: mapeoFinal || it.desc,
-          mapeoSugerido: scoreAprox != null, // true si vino de match aproximado
+          mapeoSugerido: scoreAprox != null,
           scoreAprox,
           cant: it.qty,
           cantEdit: it.qty,
@@ -2086,6 +2111,8 @@ async function procesarXMLsMasivo(files) {
           umEdit: it.um === 'Und' ? 'Un' : it.um,
           punit: it.prcConIVA,
           conf,
+          esKgDirecto: !!it.esKgDirecto,         // B: viene del parser (UM vacío + Q decimal)
+          factorAprendido: factorAprendido || null, // C: factor aprendido de Mapeos_Facturas
           facturaFolio: factura.folio,
           facturaFecha: factura.fecha,
           facturaProveedor: factura.proveedor,
@@ -2217,10 +2244,10 @@ async function registrarTodosXML() {
     if(!itemsAuto.length) return;
     let totFactura = 0;
     itemsAuto.forEach(it => {
-      const factor = getKgFactor(it.desc, it.umEdit||it.um);
+      const factor = getKgFactorItem(it);
       const cant = it.cantEdit ?? it.cant;
       const kg = (cant * factor).toFixed(3);
-      const pxkg = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+      const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
       const totalLinea = Math.round(parseFloat(kg) * pxkg);
       totFactura += it.punit * cant;
       filasMov.push([
@@ -2333,10 +2360,30 @@ function parseXMLFactura(xmlText) {
   const items = getAll('Detalle').map(d => {
     const nmb = (d.getElementsByTagName('NmbItem')[0]?.textContent||'').trim();
     const qty = parseFloat(d.getElementsByTagName('QtyItem')[0]?.textContent||0);
-    const um = (d.getElementsByTagName('UnmdItem')[0]?.textContent||'Und').trim();
+    const umRaw = (d.getElementsByTagName('UnmdItem')[0]?.textContent||'').trim();
     const prcNeto = parseFloat(d.getElementsByTagName('PrcItem')[0]?.textContent||0);
     const monto = parseFloat(d.getElementsByTagName('MontoItem')[0]?.textContent||0);
-    return { desc: nmb, qty, um, prcNeto, prcConIVA: Math.round(prcNeto*factorIVA), monto, montoConIVA: Math.round(monto*factorIVA) };
+
+    // B: Detección de "Kg directo" — UM vacío + cantidad con decimales
+    //   suele ser carnicería/productos pesados al detalle (Q en kg, P por kg)
+    const tieneDecimales = Math.abs(qty - Math.round(qty)) > 0.0001;
+    const umVacio = !umRaw || umRaw === '';
+    const esKgDirecto = umVacio && tieneDecimales;
+
+    // Normalizar UM final
+    let um;
+    if(esKgDirecto) um = 'Kg';
+    else if(!umRaw) um = 'Und';
+    else um = umRaw;
+
+    return {
+      desc: nmb, qty, um,
+      prcNeto,
+      prcConIVA: Math.round(prcNeto*factorIVA),
+      monto,
+      montoConIVA: Math.round(monto*factorIVA),
+      esKgDirecto
+    };
   });
   return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
 }
@@ -2368,9 +2415,9 @@ function renderTablaF() {
   itemsF.forEach((it, i) => {
     if(it.conf===1) ok++; else if(it.conf===2) wn++; else er++;
     const cls = it.conf===1?'rok':it.conf===2?'rwarn':'rerr';
-    const factor = getKgFactor(it.desc, it.umEdit||it.um);
+    const factor = getKgFactorItem(it);
     const kgEquiv = parseFloat(it.cantEdit||it.cant) * factor;
-    const pxkgF = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+    const pxkgF = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
     const pSist = it.mapeo ? getPrecioSistema(it.mapeo) : null;
     const difPct = pSist ? Math.abs(pxkgF - pSist)/pSist : 0;
     const hayAlerta = pSist && difPct > 0.05;
@@ -2410,7 +2457,7 @@ function renderTablaF() {
         <option value="Un"${(it.umEdit||it.um)==='Un'?' selected':''}>Un</option>
         <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
         <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
-      </select></td>
+      </select>${it.esKgDirecto?'<div style="font-size:10px;color:#5e35b1;margin-top:2px">🐄 Kg directo</div>':(it.factorAprendido?'<div style="font-size:10px;color:#1976d2;margin-top:2px">📌 '+it.factorAprendido+' kg/un</div>':'')}</td>
       <td style="text-align:right"><input type="number" value="${it.punit}" style="font-size:12px;width:75px;text-align:right" onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
       <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
@@ -2436,9 +2483,12 @@ function confirmarItem(i) {
     itemsF[i].mapeoSugerido = false; // ya confirmado, dejó de ser sugerencia
     // Si la descripción XML no estaba mapeada antes (o estaba mapeada diferente), guardar
     const descKey = itemsF[i].desc.trim().toUpperCase();
-    if(itemsF[i].desc.trim() !== itemsF[i].mapeo && mapeosFacturas[descKey] !== itemsF[i].mapeo) {
-      mapeosFacturas[descKey] = itemsF[i].mapeo;
-      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), itemsF[i].mapeo, new Date().toISOString().substring(0,10)]);
+    const prev = mapeosFacturas[descKey];
+    const prevNombre = prev ? (typeof prev === 'string' ? prev : prev.nombre) : null;
+    const factor = getKgFactorItem(itemsF[i]);
+    if(itemsF[i].desc.trim() !== itemsF[i].mapeo && prevNombre !== itemsF[i].mapeo) {
+      mapeosFacturas[descKey] = { nombre: itemsF[i].mapeo, factor };
+      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), itemsF[i].mapeo, new Date().toISOString().substring(0,10), factor]);
     }
     renderTablaF();
   } else {
@@ -2459,11 +2509,12 @@ function mapF(i, v) {
         gsPost('Maestro_Precios', [nombre, 'kg', parseFloat(precio_nuevo)||0, 'Ingresado desde app']);
         refrescarMaestroList();
       }
-      // Guardar mapeo
+      // Guardar mapeo con factor calculado
       const descKey = itemsF[i].desc.trim().toUpperCase();
+      const factor = getKgFactorItem(itemsF[i]);
       if(!mapeosFacturas[descKey]) {
-        mapeosFacturas[descKey] = nombre;
-        gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), nombre, new Date().toISOString().substring(0,10)]);
+        mapeosFacturas[descKey] = { nombre, factor };
+        gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), nombre, new Date().toISOString().substring(0,10), factor]);
       }
     }
   }
@@ -2473,9 +2524,12 @@ function mapF(i, v) {
     itemsF[i].conf=2;
     // Guardar mapeo cuando usuario selecciona manualmente
     const descKey = itemsF[i].desc.trim().toUpperCase();
-    if(mapeosFacturas[descKey] !== v) {
-      mapeosFacturas[descKey] = v;
-      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), v, new Date().toISOString().substring(0,10)]);
+    const prev = mapeosFacturas[descKey];
+    const prevNombre = prev ? (typeof prev === 'string' ? prev : prev.nombre) : null;
+    const factor = getKgFactorItem(itemsF[i]);
+    if(prevNombre !== v) {
+      mapeosFacturas[descKey] = { nombre: v, factor };
+      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), v, new Date().toISOString().substring(0,10), factor]);
     }
   }
   renderTablaF();
@@ -2497,7 +2551,7 @@ function fGo(n) {
     document.getElementById('fc1').textContent = itemsF.length;
     document.getElementById('fc2').textContent = '$'+Math.round(tot*f).toLocaleString('es-CL');
     document.getElementById('fc3').textContent = '$'+Math.round(tot/f).toLocaleString('es-CL');
-    const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactor(it.desc,it.umEdit||it.um),0);
+    const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactorItem(it),0);
     document.getElementById('fc4').textContent = '+'+kg.toFixed(1)+' kg';
     const alertas = window._alertasPrecios||[];
     const div = document.getElementById('falerta');
@@ -2523,9 +2577,9 @@ async function registrarFactura() {
     const obs = document.getElementById('fobs').value;
     let registrados = 0;
     for(const it of itemsF){
-      const factor = getKgFactor(it.desc, it.umEdit||it.um);
+      const factor = getKgFactorItem(it);
       const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
-      const pxkg = (it.umEdit==='Kg'||it.um==='Kg')?it.punit*1.24:it.punit*1.19/factor;
+      const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto)?it.punit*1.24:it.punit*1.19/factor;
       btn.textContent = `Registrando ${++registrados}/${itemsF.length}...`;
       const r = await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
       if(!r || !r.ok) throw new Error(`Error registrando ${it.desc}: ${r?.error||'sin respuesta'}`);
@@ -2538,8 +2592,8 @@ async function registrarFactura() {
     // Para persistir cambios al Maestro, hay un botón aparte (futuro).
     try {
       itemsF.forEach(it => {
-        const factor = getKgFactor(it.desc, it.umEdit||it.um);
-        const pxkg = (it.umEdit==='Kg'||it.um==='Kg') ? it.punit*1.24 : it.punit*1.19/factor;
+        const factor = getKgFactorItem(it);
+        const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
         const nombre = (it.mapeo||it.desc).trim().toUpperCase();
         const precioNuevo = Math.round(pxkg);
         if(precioNuevo > 0) {
