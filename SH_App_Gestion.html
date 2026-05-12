@@ -2423,8 +2423,8 @@ function renderTablaF() {
     const kgEquiv = parseFloat(it.cantEdit||it.cant) * factor;
     const pxkgF = it.punit / factor;
     const pSist = it.mapeo ? getPrecioSistema(it.mapeo) : null;
-    const difPct = pSist ? Math.abs(pxkgF - pSist)/pSist : 0;
-    const hayAlerta = pSist && difPct > 0.05;
+    const difPct = pSist ? (pxkgF - pSist) / pSist : 0;
+    const hayAlerta = pSist && Math.abs(difPct) > 0.05;
     if(hayAlerta) alertas.push({ing:it.mapeo, pF:Math.round(pxkgF), pS:pSist, d:Math.round(difPct*100)});
 
     const scoreTxt = it.mapeoSugerido && it.scoreAprox
@@ -2572,12 +2572,22 @@ function editF(i, campo, val) {
 function fGo(n) {
   ['fs1','fs2','fs3'].forEach((id,idx) => document.getElementById(id).style.display = idx===n-1?'block':'none');
   if(n===3){
+    // tot = suma de (precio unitario × cantidad). Para XML, punit ya incluye IVA.
+    // Para img/PDF, punit es neto.
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    // Para XML: precios ya incluyen IVA, no multiplicar. Para img/pdf: +19% (tasa Chile)
-    const f = tipoF==='xml' ? 1 : 1.19;
+    let totConIVA, totNeto;
+    if(tipoF === 'xml') {
+      // punit ya viene con IVA → tot es el total c/IVA
+      totConIVA = tot;
+      totNeto = tot / 1.19;
+    } else {
+      // punit es neto → tot es el subtotal neto
+      totNeto = tot;
+      totConIVA = tot * 1.19;
+    }
     document.getElementById('fc1').textContent = itemsF.length;
-    document.getElementById('fc2').textContent = '$'+Math.round(tot*f).toLocaleString('es-CL');
-    document.getElementById('fc3').textContent = '$'+Math.round(tot/f).toLocaleString('es-CL');
+    document.getElementById('fc2').textContent = '$'+Math.round(totConIVA).toLocaleString('es-CL');
+    document.getElementById('fc3').textContent = '$'+Math.round(totNeto).toLocaleString('es-CL');
     const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactorItem(it),0);
     document.getElementById('fc4').textContent = '+'+kg.toFixed(1)+' kg';
     const alertas = window._alertasPrecios||[];
@@ -2585,7 +2595,12 @@ function fGo(n) {
     if(alertas.length>0){
       div.style.display='block';
       div.innerHTML = `<strong>⚠ ${alertas.length} precio(s) con diferencia mayor al 5%:</strong><br>`+
-        alertas.map(a=>`${a.ing}: factura $${a.pF.toLocaleString('es-CL')}/kg vs sistema $${a.pS.toLocaleString('es-CL')}/kg (+${a.d}%)`).join('<br>')+
+        alertas.map(a => {
+          const subio = a.d > 0;
+          const signo = subio ? '+' : '';
+          const color = subio ? '#c62828' : '#2e7d32';
+          return `<span style="color:${color}">${a.ing}: factura $${a.pF.toLocaleString('es-CL')}/kg vs sistema $${a.pS.toLocaleString('es-CL')}/kg (${signo}${a.d}%)</span>`;
+        }).join('<br>')+
         '<br><span style="font-size:11px">Se actualizarán automáticamente en Maestro_Precios.</span>';
     } else div.style.display='none';
   }
