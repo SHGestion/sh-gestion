@@ -913,11 +913,15 @@ async function gsPost(hoja, fila) {
 // Wrapper que respeta factorAprendido (C) y esKgDirecto (B) antes de heurística
 function getKgFactorItem(it) {
   if(!it) return 1;
-  // Prioridad 1: factor aprendido de Mapeos_Facturas
+  // Prioridad 1: si el usuario editó UM a Kg o Lt, la cantidad ya está en kg → factor = 1
+  //   (evita doble factor cuando el regex detectaría "3 KG" en el nombre)
+  const um = (it.umEdit || it.um || '').toString().toLowerCase();
+  if(um === 'kg' || um === 'kgs' || um === 'lt' || um === 'lts' || um === 'l') return 1;
+  // Prioridad 2: factor aprendido de Mapeos_Facturas
   if(it.factorAprendido && it.factorAprendido > 0) return it.factorAprendido;
-  // Prioridad 2: Kg directo (carnicería al detalle, cantidad ya en kg)
+  // Prioridad 3: Kg directo (carnicería al detalle, cantidad ya en kg)
   if(it.esKgDirecto) return 1;
-  // Prioridad 3: heurística normal (regex + palabras clave)
+  // Prioridad 4: heurística normal (regex + palabras clave)
   return getKgFactor(it.desc, it.umEdit || it.um);
 }
 
@@ -2247,7 +2251,7 @@ async function registrarTodosXML() {
       const factor = getKgFactorItem(it);
       const cant = it.cantEdit ?? it.cant;
       const kg = (cant * factor).toFixed(3);
-      const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
+      const pxkg = it.punit / factor;
       const totalLinea = Math.round(parseFloat(kg) * pxkg);
       totFactura += it.punit * cant;
       filasMov.push([
@@ -2417,7 +2421,7 @@ function renderTablaF() {
     const cls = it.conf===1?'rok':it.conf===2?'rwarn':'rerr';
     const factor = getKgFactorItem(it);
     const kgEquiv = parseFloat(it.cantEdit||it.cant) * factor;
-    const pxkgF = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
+    const pxkgF = it.punit / factor;
     const pSist = it.mapeo ? getPrecioSistema(it.mapeo) : null;
     const difPct = pSist ? Math.abs(pxkgF - pSist)/pSist : 0;
     const hayAlerta = pSist && difPct > 0.05;
@@ -2537,7 +2541,30 @@ function mapF(i, v) {
 
 function editF(i, campo, val) {
   if(campo==='cant') itemsF[i].cantEdit = parseFloat(val)||0;
-  if(campo==='um') itemsF[i].umEdit = val;
+  if(campo==='um') {
+    const umAnterior = itemsF[i].umEdit || itemsF[i].um;
+    const umNueva = val;
+    // Auto-conversión: si cambia de Un a Kg, multiplicar la cantidad por el factor del envase
+    //                   si cambia de Kg a Un, dividir
+    if(umAnterior !== umNueva) {
+      const factorEnvase = getKgFactor(itemsF[i].desc, 'Un'); // detecta el formato del envase
+      if(factorEnvase !== 1) {
+        const cantActual = itemsF[i].cantEdit || itemsF[i].cant;
+        // De Un a Kg: cant_kg = cant_un * factor (kg/un)
+        if((umAnterior==='Un' || !umAnterior) && (umNueva==='Kg' || umNueva==='Lt')) {
+          itemsF[i].cantEdit = parseFloat((cantActual * factorEnvase).toFixed(3));
+          // Y el precio unitario pasa a ser precio por kg
+          itemsF[i].punit = Math.round(itemsF[i].punit / factorEnvase);
+        }
+        // De Kg a Un: cant_un = cant_kg / factor
+        else if((umAnterior==='Kg' || umAnterior==='Lt') && umNueva==='Un' && cantActual > 0) {
+          itemsF[i].cantEdit = parseFloat((cantActual / factorEnvase).toFixed(3));
+          itemsF[i].punit = Math.round(itemsF[i].punit * factorEnvase);
+        }
+      }
+    }
+    itemsF[i].umEdit = umNueva;
+  }
   if(campo==='punit') itemsF[i].punit = parseFloat(val)||0;
   renderTablaF();
 }
@@ -2546,8 +2573,8 @@ function fGo(n) {
   ['fs1','fs2','fs3'].forEach((id,idx) => document.getElementById(id).style.display = idx===n-1?'block':'none');
   if(n===3){
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    // XML: precios ya incluyen IVA; img: +24%; pdf: +19%
-    const f = tipoF==='img'?1.24:tipoF==='xml'?1:1.19;
+    // Para XML: precios ya incluyen IVA, no multiplicar. Para img/pdf: +19% (tasa Chile)
+    const f = tipoF==='xml' ? 1 : 1.19;
     document.getElementById('fc1').textContent = itemsF.length;
     document.getElementById('fc2').textContent = '$'+Math.round(tot*f).toLocaleString('es-CL');
     document.getElementById('fc3').textContent = '$'+Math.round(tot/f).toLocaleString('es-CL');
@@ -2579,13 +2606,13 @@ async function registrarFactura() {
     for(const it of itemsF){
       const factor = getKgFactorItem(it);
       const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
-      const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto)?it.punit*1.24:it.punit*1.19/factor;
+      const pxkg = it.punit / factor;
       btn.textContent = `Registrando ${++registrados}/${itemsF.length}...`;
       const r = await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
       if(!r || !r.ok) throw new Error(`Error registrando ${it.desc}: ${r?.error||'sin respuesta'}`);
     }
     const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot*(tipoF==='img'?1.24:1.19)),u,obs]);
+    await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot * (tipoF==='xml' ? 1 : 1.19)),u,obs]);
 
     // ── Actualizar Maestro_Precios en memoria (sin reescribir Sheets) ──────
     // Los precios nuevos quedan en maestroPrecios para uso de la sesión actual.
@@ -2593,7 +2620,7 @@ async function registrarFactura() {
     try {
       itemsF.forEach(it => {
         const factor = getKgFactorItem(it);
-        const pxkg = (it.umEdit==='Kg'||it.um==='Kg'||it.esKgDirecto) ? it.punit*1.24 : it.punit*1.19/factor;
+        const pxkg = it.punit / factor;
         const nombre = (it.mapeo||it.desc).trim().toUpperCase();
         const precioNuevo = Math.round(pxkg);
         if(precioNuevo > 0) {
