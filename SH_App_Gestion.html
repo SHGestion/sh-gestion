@@ -1204,6 +1204,80 @@ function normalizarIng(nombre) {
   return nombre.trim();
 }
 
+// ── MATCHING APROXIMADO POR SIMILITUD DE TOKENS ─────────────────────────────
+// Normaliza un nombre para comparación: quita tildes, puntos, números sueltos, palabras vacías
+function tokensSignificativos(s) {
+  if(!s) return [];
+  const STOPWORDS = new Set(['DE','LA','EL','LOS','LAS','CON','SIN','Y','O','A','EN','UN','UNA','PARA','POR','DEL']);
+  const ABREVS = {
+    'ACE':'ACEITE','VEG':'VEGETAL','MARG':'MARGARINA','MANTEQ':'MANTEQUILLA',
+    'CARNE M':'CARNE MOLIDA','POLL':'POLLO','POL':'POLLO','CONG':'CONGELADO','CONGEL':'CONGELADO',
+    'PARM':'PARMESANO','MOZ':'MOZARELLA','MOZARELL':'MOZARELLA','CEB':'CEBOLLA',
+    'ZAN':'ZANAHORIA','LEV':'LEVADURA','POLV':'POLVO','PIM':'PIMIENTA','PREM':'PREMIUM'
+  };
+  return s.toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // quitar tildes
+    .replace(/[.,;:()\[\]\/\\\-_]/g,' ')              // quitar puntuación
+    .replace(/\d+/g,' ')                              // quitar números
+    .replace(/\s+/g,' ').trim()
+    .split(' ')
+    .map(t => ABREVS[t] || t)                          // expandir abreviaturas
+    .filter(t => t.length >= 3 && !STOPWORDS.has(t));  // descartar cortas y stopwords
+}
+
+// Score 0..1 entre dos nombres usando Jaccard ponderado por orden
+function similitudNombres(a, b) {
+  const ta = tokensSignificativos(a);
+  const tb = tokensSignificativos(b);
+  if(!ta.length || !tb.length) return 0;
+  // Coincidencia exacta de tokens (Jaccard)
+  const setA = new Set(ta);
+  const setB = new Set(tb);
+  let inter = 0;
+  setA.forEach(t => { if(setB.has(t)) inter++; });
+  const union = setA.size + setB.size - inter;
+  const jaccard = union > 0 ? inter / union : 0;
+  // Bonus si el primer token coincide (suele ser el ingrediente base)
+  const primerCoincide = ta[0] === tb[0] ? 0.15 : 0;
+  // Bonus si todos los tokens del más corto están en el más largo (prefijo común)
+  const corto = ta.length <= tb.length ? setA : setB;
+  const largo = ta.length <= tb.length ? setB : setA;
+  let coincDelCorto = 0;
+  corto.forEach(t => { if(largo.has(t)) coincDelCorto++; });
+  const cobertura = corto.size > 0 ? coincDelCorto / corto.size : 0;
+  return Math.min(1, jaccard * 0.6 + cobertura * 0.4 + primerCoincide);
+}
+
+// Busca el mejor match en el Maestro para una descripción del XML
+// Devuelve {nombre, score} o null si no hay nada > umbral
+function buscarMejorMatchMaestro(descripcionXML, umbral) {
+  umbral = umbral != null ? umbral : 0.7;
+  let mejor = null;
+  let mejorScore = umbral;
+  Object.values(maestroPrecios).forEach(p => {
+    const score = similitudNombres(descripcionXML, p.nombre);
+    if(score > mejorScore) {
+      mejor = p.nombre;
+      mejorScore = score;
+    }
+  });
+  return mejor ? {nombre: mejor, score: mejorScore} : null;
+}
+
+// Refresca el <datalist id="maestro-list"> con los productos actuales en memoria
+function refrescarMaestroList() {
+  const dl = document.getElementById('maestro-list');
+  if(!dl) return;
+  dl.innerHTML = '';
+  Object.values(maestroPrecios)
+    .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'))
+    .forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.nombre;
+      dl.appendChild(opt);
+    });
+}
+
 async function cargarDia() {
   const fecha = document.getElementById('cfecha').value;
   if(!fecha) return;
@@ -1945,6 +2019,25 @@ async function procesarXMLsMasivo(files) {
     }
   } catch(e) {}
 
+  // Recargar Maestro_Precios fresco (por si se agregaron productos en esta sesión)
+  try {
+    const maestroRows = await gsGet('Maestro_Precios');
+    if(maestroRows && maestroRows.length > 1) {
+      maestroRows.slice(1).forEach(r => {
+        if(r[0]) {
+          const k = r[0].toString().trim().toUpperCase();
+          maestroPrecios[k] = {
+            nombre: r[0].toString().trim(),
+            um: r[1] || 'Kg',
+            precio: parseFloat(r[2]||0),
+            proveedor: r[3] || ''
+          };
+        }
+      });
+      refrescarMaestroList();
+    }
+  } catch(e) {}
+
   let i = 0;
   for(const file of xmlQueue) {
     i++;
@@ -1959,12 +2052,34 @@ async function procesarXMLsMasivo(files) {
 
       factura.items.forEach(it => {
         const key = it.desc.toUpperCase();
-        const mapeo = mapeosFacturas[key];
-        const inMaestro = maestroPrecios[key] || maestroPrecios[(mapeo||'').toUpperCase()];
-        const conf = mapeo ? 1 : (inMaestro ? 2 : 0);
+        const mapeoManual = mapeosFacturas[key]; // Mapeo aprendido de facturas anteriores
+        let mapeoFinal = mapeoManual || '';
+        let conf = 0;
+        let scoreAprox = null;
+
+        if(mapeoManual) {
+          // Mapeo aprendido — confianza alta
+          conf = 1;
+        } else if(maestroPrecios[key]) {
+          // Match exacto contra Maestro
+          mapeoFinal = maestroPrecios[key].nombre;
+          conf = 1;
+        } else {
+          // Intento de match aproximado
+          const aprox = buscarMejorMatchMaestro(it.desc, 0.7);
+          if(aprox) {
+            mapeoFinal = aprox.nombre;
+            scoreAprox = aprox.score;
+            conf = 2; // Sugiere, requiere revisión visual
+          }
+        }
+
+        const inMaestro = maestroPrecios[key] || maestroPrecios[(mapeoFinal||'').toUpperCase()];
         const item = {
           desc: it.desc,
-          mapeo: mapeo || it.desc,
+          mapeo: mapeoFinal || it.desc,
+          mapeoSugerido: scoreAprox != null, // true si vino de match aproximado
+          scoreAprox,
           cant: it.qty,
           cantEdit: it.qty,
           um: it.um === 'Und' ? 'Un' : it.um,
@@ -2261,9 +2376,12 @@ function renderTablaF() {
     const hayAlerta = pSist && difPct > 0.05;
     if(hayAlerta) alertas.push({ing:it.mapeo, pF:Math.round(pxkgF), pS:pSist, d:Math.round(difPct*100)});
 
+    const scoreTxt = it.mapeoSugerido && it.scoreAprox
+      ? `<br><span style="font-size:10px;color:#888">~${Math.round(it.scoreAprox*100)}% similitud</span>`
+      : '';
     const st = it.conf===1
       ? '<span style="color:#2e7d32;font-size:12px">OK</span>'
-      : it.conf===2 ? '<span style="color:#e65100;font-size:12px">Revisar</span>'
+      : it.conf===2 ? '<span style="color:#e65100;font-size:12px">Revisar</span>'+scoreTxt
       : '<span style="color:#c62828;font-size:12px">Sin mapeo</span>';
 
     // Construir opciones del select — sin mapeo muestra "seleccionar" primero
@@ -2315,6 +2433,13 @@ function renderTablaF() {
 function confirmarItem(i) {
   if(itemsF[i].mapeo && itemsF[i].mapeo !== '') {
     itemsF[i].conf = 1;
+    itemsF[i].mapeoSugerido = false; // ya confirmado, dejó de ser sugerencia
+    // Si la descripción XML no estaba mapeada antes (o estaba mapeada diferente), guardar
+    const descKey = itemsF[i].desc.trim().toUpperCase();
+    if(itemsF[i].desc.trim() !== itemsF[i].mapeo && mapeosFacturas[descKey] !== itemsF[i].mapeo) {
+      mapeosFacturas[descKey] = itemsF[i].mapeo;
+      gsPost('Mapeos_Facturas', [itemsF[i].desc.trim(), itemsF[i].mapeo, new Date().toISOString().substring(0,10)]);
+    }
     renderTablaF();
   } else {
     alert('Selecciona primero un ingrediente del sistema.');
@@ -2332,6 +2457,7 @@ function mapF(i, v) {
         maestroPrecios[nombre]={nombre:nombre,um:'kg',precio:0,proveedor:'Nuevo'};
         const precio_nuevo = prompt('Precio por kg/lt de ' + nombre + ' (deja en blanco si no sabes):');
         gsPost('Maestro_Precios', [nombre, 'kg', parseFloat(precio_nuevo)||0, 'Ingresado desde app']);
+        refrescarMaestroList();
       }
       // Guardar mapeo
       const descKey = itemsF[i].desc.trim().toUpperCase();
@@ -2881,6 +3007,7 @@ async function agregarFaltantesAMaestro() {
         proveedor: p.ultimoProv || ''
       };
     });
+    refrescarMaestroList();
 
     alert(`✓ ${seleccionados.length} producto(s) agregado(s) al Maestro.`);
     cerrarDetectorFaltantes();
