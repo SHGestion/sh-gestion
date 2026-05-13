@@ -136,6 +136,7 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
   <button class="tab" id="tab-btn-inventario" onclick="showTab('inventario',this);cargarInventario()">Inventario</button>
   <button class="tab" id="tab-btn-marcaciones" onclick="showTab('marcaciones',this)">Consumos</button>
   <button class="tab" id="tab-btn-gastos" onclick="showTab('gastos',this);cargarGastos()">Gastos</button>
+  <button class="tab" id="tab-btn-minuta" onclick="showTab('minuta',this);initMinuta()">Minuta</button>
 </div>
 
 <!-- ═══ TAB 0: DASHBOARD ═══ -->
@@ -843,6 +844,53 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
     <div id="ajok" style="display:none;margin-top:8px;padding:10px;background:#e8f5e9;border-radius:8px;color:#1b5e20;font-size:13px"></div>
   </div>
 </div>
+
+<!-- ═══ TAB MINUTA: IMPORTAR MINUTA DEL CLIENTE ═══ -->
+<div class="panel" id="tab-minuta">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <strong style="font-size:15px">Importar Minuta del Cliente</strong>
+        <div style="font-size:12px;color:#888;margin-top:2px">Procesa Excel del cliente y mapea contra RecetasBase</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span id="minuta-info" style="font-size:12px;color:#888"></span>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="recargarRecetasGS()">↻ Recargar recetas</button>
+      </div>
+    </div>
+
+    <div style="background:#f5f5f7;border-radius:12px;padding:14px;margin-bottom:16px;text-align:center">
+      <label style="cursor:pointer;display:inline-block">
+        <input type="file" id="minuta-file" accept=".xlsx,.xls" style="display:none">
+        <div style="background:#1F4E79;color:#fff;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:600;display:inline-block">
+          📂 Subir minuta del cliente (.xlsx)
+        </div>
+      </label>
+      <div id="minuta-status" style="margin-top:10px;font-size:12px;color:#888"></div>
+    </div>
+
+    <div id="minuta-resultado" style="display:none">
+      <div id="minuta-metricas" style="margin-bottom:14px"></div>
+      <p style="font-size:12px;color:#888;margin:0 0 10px">
+        <span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-weight:600">✓</span> match exacto ·
+        <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-weight:600">≈</span> aproximado ·
+        <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-weight:600">✗</span> sin match ·
+        <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-weight:600">✎</span> corregido.
+        Click sobre cualquier match para cambiarlo.
+      </p>
+      <div id="minuta-tabla"></div>
+      <div style="margin-top:18px;padding:14px;background:#f0f7ff;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div style="font-size:13px;color:#1F4E79">
+          <strong>Sprint 2 – Solo matching.</strong> En Sprint 3 agregaremos raciones y generación de Planificacion.
+        </div>
+        <button class="btn" style="font-size:13px" onclick="guardarAliasesMinuta()">💾 Guardar aliases aprendidos</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SheetJS para parsear Excel cliente-side -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
 const ANTHROPIC_KEY = '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';
@@ -4357,6 +4405,429 @@ function showTab(id, el) {
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   el.classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ── MÓDULO MINUTA: IMPORTAR MINUTA DEL CLIENTE ──────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+let recetasGS = [];           // [{cod, nom, norm, tokens, esDesh, esCong, cat}]
+let aliasesMinuta = {};       // { TEXTO_NORM: {cod, nom, fecha} }
+let datosMinuta = [];         // [{dia, menu, texto, partes:[{texto,cod,nom,score,estado,editado}]}]
+let minutaInicializada = false;
+
+async function initMinuta() {
+  if(minutaInicializada) return;
+  document.getElementById('minuta-status').textContent = 'Cargando recetas y aliases...';
+  await recargarRecetasGS();
+  await cargarAliasesMinuta();
+  minutaInicializada = true;
+  document.getElementById('minuta-status').textContent = '';
+  // Bind del input file
+  const fi = document.getElementById('minuta-file');
+  if(fi && !fi._bound) {
+    fi.addEventListener('change', onMinutaFile);
+    fi._bound = true;
+  }
+}
+
+async function recargarRecetasGS() {
+  document.getElementById('minuta-info').textContent = '⏳ Cargando recetas...';
+  try {
+    const rows = await gsGet('RecetasBase_GS');
+    if(!rows || rows.length < 2) {
+      document.getElementById('minuta-info').innerHTML = '<span style="color:#c62828">⚠ No se pudo cargar RecetasBase_GS</span>';
+      return;
+    }
+    recetasGS = rows.slice(1).filter(r => r[0] && r[1]).map(r => {
+      const cod = r[0], nom = String(r[1]).trim(), cat = r[2] ? String(r[2]).trim() : '';
+      return {
+        cod, nom, cat,
+        norm: minutaNormalizar(nom),
+        tokens: new Set(minutaTokens(nom)),
+        esDesh: /\(desh/i.test(nom),
+        esCong: /\(cong/i.test(nom)
+      };
+    });
+    document.getElementById('minuta-info').textContent = `${recetasGS.length} recetas cargadas`;
+  } catch(e) {
+    document.getElementById('minuta-info').innerHTML = `<span style="color:#c62828">⚠ Error: ${e.message}</span>`;
+  }
+}
+
+async function cargarAliasesMinuta() {
+  // Crear la hoja si no existe, y leer alias guardados
+  try {
+    const rows = await gsGet('Alias_Preparaciones').catch(() => null);
+    if(rows && rows.length > 1) {
+      rows.slice(1).forEach(r => {
+        if(r[0] && r[1]) {
+          aliasesMinuta[minutaNormalizar(String(r[0]))] = {
+            cod: r[1], nom: r[2] || '', fecha: r[3] || ''
+          };
+        }
+      });
+    } else {
+      // Hoja vacía o no existe: crearla con encabezado
+      try {
+        await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({accion:'crearHoja', hoja:'Alias_Preparaciones', encabezados:['Texto Minuta','Código Receta','Nombre Receta','Fecha aprendizaje']})});
+      } catch(e) {}
+    }
+  } catch(e) {
+    console.warn('Alias_Preparaciones no disponible:', e);
+  }
+}
+
+function minutaNormalizar(s) {
+  return (s||'').toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\/.,()]/g, ' ')
+    .replace(/\bc\//g, 'con ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function minutaTokens(s) {
+  const SW = new Set(['de','la','el','los','las','y','o','a','en','con','sin','al','del']);
+  return minutaNormalizar(s).split(' ').filter(t => t.length >= 2 && !SW.has(t));
+}
+
+function minutaSimilitud(a, b) {
+  const ta = new Set(minutaTokens(a));
+  const tb = new Set(minutaTokens(b));
+  if(!ta.size || !tb.size) return 0;
+  let inter = 0;
+  ta.forEach(t => { if(tb.has(t)) inter++; });
+  const union = ta.size + tb.size - inter;
+  const jaccard = inter / union;
+  const cobertura = inter / Math.min(ta.size, tb.size);
+  return jaccard * 0.5 + cobertura * 0.5;
+}
+
+// Filtra/prioriza candidatos según reglas (preferencia Desh para purés)
+function aplicarPreferencias(texto, candidatos) {
+  const sn = minutaNormalizar(texto);
+  const esPure = sn.includes('pure');
+  if(!esPure) return candidatos.map(c => ({...c, _bonus:0}));
+  let filtrados = candidatos.filter(r => !r.esCong);
+  if(!filtrados.length) filtrados = candidatos;
+  return filtrados.map(r => ({...r, _bonus: r.esDesh ? 0.1 : 0}));
+}
+
+function buscarMatchExactoGS(s) {
+  const norm = minutaNormalizar(s);
+  const candidatos = recetasGS.filter(r => r.norm === norm);
+  if(!candidatos.length) return null;
+  const conPref = aplicarPreferencias(s, candidatos);
+  conPref.sort((a,b) => (b._bonus||0) - (a._bonus||0));
+  return conPref[0];
+}
+
+function buscarMejorMatchGS(s, umbral) {
+  umbral = umbral != null ? umbral : 0.65;
+  const tk = minutaTokens(s);
+  if(!tk.length) return null;
+  const candidatos = [];
+  for(const r of recetasGS) {
+    let comp = false;
+    for(const t of tk) { if(r.tokens.has(t)) { comp = true; break; } }
+    if(!comp) continue;
+    const sim = minutaSimilitud(s, r.nom);
+    if(sim >= umbral) candidatos.push({...r, score: sim});
+  }
+  if(!candidatos.length) return null;
+  const conPref = aplicarPreferencias(s, candidatos);
+  conPref.sort((a,b) => (b.score + (b._bonus||0)) - (a.score + (a._bonus||0)));
+  return {cod: conPref[0].cod, nom: conPref[0].nom, score: conPref[0].score};
+}
+
+function separarPlatoMinuta(s) {
+  const SEPS = [/\s+c\/\s*/i, /\s+con\s+/i, /\s+\+\s+/];
+  for(const sep of SEPS) {
+    const partes = s.split(sep);
+    if(partes.length >= 2) return partes.map(p => p.trim()).filter(p => p);
+  }
+  return [s.trim()];
+}
+
+async function onMinutaFile(ev) {
+  const f = ev.target.files[0];
+  if(!f) return;
+  if(!recetasGS.length) {
+    alert('Primero hay que cargar RecetasBase_GS. Click en "Recargar recetas".');
+    return;
+  }
+  document.getElementById('minuta-status').textContent = 'Procesando ' + f.name + '...';
+  const buf = await f.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  procesarMinutaSH(rows);
+  document.getElementById('minuta-status').textContent = '';
+}
+
+function procesarMinutaSH(rows) {
+  // Encontrar fila con días (primera con muchos números 1-31)
+  let filaDias = -1, dias = [];
+  for(let i = 0; i < Math.min(5, rows.length); i++) {
+    const nums = rows[i].filter(v => typeof v === 'number' && v >= 1 && v <= 31);
+    if(nums.length >= 7) { filaDias = i; dias = rows[i]; break; }
+  }
+  if(filaDias < 0) {
+    document.getElementById('minuta-status').innerHTML = '<span style="color:#c62828">⚠ No encontré fila de días en el Excel.</span>';
+    return;
+  }
+  const mesAnio = rows[filaDias][0] || 'Mes desconocido';
+
+  const platos = [];
+  let turnoActual = null;
+  for(let i = filaDias + 1; i < rows.length; i++) {
+    const r = rows[i];
+    if(!r[0]) continue;
+    const lbl = String(r[0]).trim().toUpperCase();
+    if(lbl.startsWith('#')) {
+      turnoActual = lbl.includes('CENA') ? 'CENA' : 'ALMUERZO';
+      continue;
+    }
+    if(lbl === 'NO ESTARÉ' || lbl === 'NO ESTARE') continue;
+    const lblNorm = lbl.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+    const esMenu = /^MENU\s+[IVX\d]+$/i.test(lblNorm);
+    const esHipo = /HIPO/i.test(lblNorm);
+    if(!esMenu && !esHipo) continue;
+
+    for(let c = 1; c < r.length; c++) {
+      const v = r[c];
+      if(!v || typeof v !== 'string') continue;
+      const texto = v.trim();
+      if(!texto || texto === 'NO ESTARÉ' || texto === 'NO ESTARE') continue;
+      const dia = dias[c];
+
+      const partes = separarPlatoMinuta(texto).map(p => {
+        // 1) Buscar primero en aliases aprendidos
+        const norm = minutaNormalizar(p);
+        const alias = aliasesMinuta[norm];
+        if(alias) return {
+          texto: p, cod: alias.cod, nom: alias.nom, score: 1,
+          estado: 'alias', editado: false
+        };
+        // 2) Match exacto contra RecetasBase
+        const ex = buscarMatchExactoGS(p);
+        if(ex) return {
+          texto: p, cod: ex.cod, nom: ex.nom, score: null,
+          estado: 'exacto', editado: false
+        };
+        // 3) Match aproximado
+        const ap = buscarMejorMatchGS(p);
+        if(ap) return {
+          texto: p, cod: ap.cod, nom: ap.nom, score: ap.score,
+          estado: 'aprox', editado: false
+        };
+        return { texto: p, cod: null, nom: null, score: null, estado: 'sin', editado: false };
+      });
+      platos.push({ dia, turno: turnoActual, menu: lbl, texto, partes });
+    }
+  }
+  // Solo ALMUERZO (cena = misma producción)
+  datosMinuta = platos.filter(p => p.turno === 'ALMUERZO');
+  renderMinutaResultado(mesAnio);
+}
+
+function renderMinutaResultado(mes) {
+  let totalP = 0, exa = 0, apx = 0, sin = 0, edi = 0, ali = 0;
+  datosMinuta.forEach(p => p.partes.forEach(pt => {
+    totalP++;
+    if(pt.editado) edi++;
+    else if(pt.estado === 'alias') ali++;
+    else if(pt.estado === 'exacto') exa++;
+    else if(pt.estado === 'aprox') apx++;
+    else sin++;
+  }));
+
+  const mkMetric = (val, lbl, bg, color) =>
+    `<div style="display:inline-block;padding:12px 16px;margin-right:8px;margin-bottom:8px;background:${bg};border-radius:10px;text-align:center;min-width:80px">
+      <div style="font-size:22px;font-weight:700;color:${color}">${val}</div>
+      <div style="font-size:11px;color:#888;text-transform:uppercase">${lbl}</div>
+    </div>`;
+  document.getElementById('minuta-metricas').innerHTML =
+    mkMetric(datosMinuta.length, 'platos', '#f0f7ff', '#1F4E79') +
+    mkMetric(totalP, 'partes', '#f0f7ff', '#1F4E79') +
+    mkMetric(ali, 'aprendidos', '#e0e7ff', '#3730a3') +
+    mkMetric(exa, 'exactos', '#d1fae5', '#065f46') +
+    mkMetric(apx, 'aproximados', '#fef3c7', '#92400e') +
+    mkMetric(sin, 'sin match', '#fee2e2', '#991b1b') +
+    mkMetric(edi, 'corregidos', '#dbeafe', '#1e40af') +
+    `<div style="font-size:12px;color:#888;margin-top:6px">Minuta: ${mes}</div>`;
+
+  document.getElementById('minuta-resultado').style.display = 'block';
+
+  const porDia = {};
+  datosMinuta.forEach((p, idx) => {
+    if(!porDia[p.dia]) porDia[p.dia] = [];
+    porDia[p.dia].push({...p, _idx: idx});
+  });
+
+  let html = '';
+  Object.keys(porDia).sort((a,b) => +a - +b).forEach(dia => {
+    html += `<div style="background:#1F4E79;color:#fff;padding:8px 12px;border-radius:8px 8px 0 0;margin-top:14px;font-weight:600;font-size:13px">Día ${dia}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f5f5f7">
+        <th style="padding:7px;text-align:left;width:80px">Menu</th>
+        <th style="padding:7px;text-align:left;width:25%">Texto original</th>
+        <th style="padding:7px;text-align:left;width:22%">Parte detectada</th>
+        <th style="padding:7px;text-align:left">Match RecetasBase</th>
+        <th style="padding:7px;text-align:left;width:90px">Estado</th>
+      </tr></thead><tbody>`;
+    porDia[dia].forEach(p => {
+      p.partes.forEach((pt, ptIdx) => {
+        let bg, tag;
+        if(pt.editado) { bg = '#dbeafe'; tag = '<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✎ FIX</span>'; }
+        else if(pt.estado === 'alias') { bg = '#e0e7ff'; tag = '<span style="background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⭐ APRENDIDO</span>'; }
+        else if(pt.estado === 'exacto') { bg = '#f0fdf4'; tag = '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✓ EXACTO</span>'; }
+        else if(pt.estado === 'aprox') { bg = '#fffbeb'; tag = `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">≈ ${Math.round(pt.score*100)}%</span>`; }
+        else { bg = '#fef2f2'; tag = '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✗ SIN MATCH</span>'; }
+
+        const matchDisplay = pt.cod
+          ? `<span style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:10px">${pt.cod}</span> ${pt.nom}`
+          : '<em style="color:#999;font-size:11px">Sin asignar</em>';
+
+        const cellId = `mcell-${p._idx}-${ptIdx}`;
+        html += `<tr style="background:${bg};border-bottom:1px solid #eee">
+          <td style="padding:6px;vertical-align:top"><strong>${ptIdx===0 ? p.menu : ''}</strong></td>
+          <td style="padding:6px;vertical-align:top">${ptIdx===0 ? p.texto : ''}</td>
+          <td style="padding:6px;vertical-align:top">${pt.texto}</td>
+          <td style="padding:6px;vertical-align:top;position:relative">
+            <div onclick="abrirEditorMinuta(${p._idx}, ${ptIdx})" style="cursor:pointer;padding:3px 5px;border-radius:4px" title="Click para cambiar">
+              ${matchDisplay}
+              <span style="float:right;color:#999;font-size:11px">✎</span>
+            </div>
+            <div id="${cellId}-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d0d0d0;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.1);display:none"></div>
+          </td>
+          <td style="padding:6px;vertical-align:top">${tag}</td>
+        </tr>`;
+      });
+    });
+    html += '</tbody></table>';
+  });
+  document.getElementById('minuta-tabla').innerHTML = html;
+}
+
+let minutaEditando = null;
+function abrirEditorMinuta(pIdx, ptIdx) {
+  // Cerrar otros dropdowns
+  document.querySelectorAll('[id^="mcell-"][id$="-dd"]').forEach(d => d.style.display = 'none');
+  const dd = document.getElementById(`mcell-${pIdx}-${ptIdx}-dd`);
+  if(!dd) return;
+  minutaEditando = {pIdx, ptIdx};
+  const pt = datosMinuta[pIdx].partes[ptIdx];
+  dd.innerHTML = `
+    <div style="padding:8px;border-bottom:1px solid #eee;background:#f5f5f7;display:flex;gap:6px;align-items:center">
+      <input type="text" id="minuta-search" placeholder="Buscar preparación..." style="flex:1;padding:5px 8px;border:1px solid #d0d0d0;border-radius:6px;font-size:12px">
+      <button onclick="cerrarEditorMinuta()" style="background:none;border:none;color:#999;cursor:pointer;font-size:14px">✕</button>
+    </div>
+    <div id="minuta-edit-results"></div>`;
+  dd.style.display = 'block';
+  const input = document.getElementById('minuta-search');
+  input.value = pt.texto;
+  buscarEnEditorMinuta(pt.texto);
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+  input.addEventListener('input', e => buscarEnEditorMinuta(e.target.value));
+}
+
+function buscarEnEditorMinuta(query) {
+  const cont = document.getElementById('minuta-edit-results');
+  if(!cont) return;
+  if(!query || query.length < 2) {
+    cont.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">Escribe para buscar...</div>';
+    return;
+  }
+  const qn = minutaNormalizar(query);
+  const tk = minutaTokens(query);
+  const matches = [];
+  for(const r of recetasGS) {
+    let score = 0;
+    if(r.norm === qn) score = 1.0;
+    else if(r.norm.includes(qn)) score = 0.9;
+    else {
+      let comp = false;
+      for(const t of tk) { if(r.tokens.has(t)) { comp = true; break; } }
+      if(comp) score = minutaSimilitud(query, r.nom);
+    }
+    if(score >= 0.4) matches.push({...r, score});
+  }
+  matches.sort((a,b) => b.score - a.score);
+  const top = matches.slice(0, 25);
+  if(!top.length) { cont.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">Sin resultados</div>'; return; }
+  cont.innerHTML = top.map(r =>
+    `<div onclick="seleccionarMinuta('${r.cod}', ${JSON.stringify(r.nom)})" style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
+      <span style="color:#666;font-family:monospace;font-size:10px">${r.cod}</span> ${r.nom}
+      ${r.cat ? '<div style="font-size:10px;color:#aaa">'+r.cat+'</div>' : ''}
+    </div>`
+  ).join('');
+}
+
+function seleccionarMinuta(cod, nom) {
+  if(!minutaEditando) return;
+  const {pIdx, ptIdx} = minutaEditando;
+  const pt = datosMinuta[pIdx].partes[ptIdx];
+  pt.cod = cod;
+  pt.nom = nom;
+  pt.editado = true;
+  cerrarEditorMinuta();
+  renderMinutaResultado(document.getElementById('minuta-metricas').lastChild?.textContent?.replace('Minuta: ','') || '');
+}
+
+function cerrarEditorMinuta() {
+  document.querySelectorAll('[id^="mcell-"][id$="-dd"]').forEach(d => d.style.display = 'none');
+  minutaEditando = null;
+}
+
+document.addEventListener('click', e => {
+  if(!e.target.closest('[id^="mcell-"]') && !e.target.closest('#minuta-tabla div[onclick]')) {
+    if(minutaEditando) cerrarEditorMinuta();
+  }
+});
+
+async function guardarAliasesMinuta() {
+  // Guardar todos los matches que NO sean 'sin' como aliases en la hoja
+  const nuevos = [];
+  const yaConocidos = Object.keys(aliasesMinuta);
+  datosMinuta.forEach(p => {
+    p.partes.forEach(pt => {
+      if(!pt.cod || pt.estado === 'sin') return;
+      const norm = minutaNormalizar(pt.texto);
+      if(yaConocidos.includes(norm) && !pt.editado) return; // ya existe y no fue editado
+      // Si fue editado, sobrescribe; si es nuevo, agrega
+      nuevos.push({
+        norm,
+        texto: pt.texto.trim(),
+        cod: pt.cod,
+        nom: pt.nom,
+        editado: pt.editado
+      });
+    });
+  });
+
+  if(!nuevos.length) {
+    alert('No hay aliases nuevos para guardar.');
+    return;
+  }
+  if(!confirm(`Guardar ${nuevos.length} alias(es) en Alias_Preparaciones?`)) return;
+
+  // Append todos en un batch
+  const hoy = new Date().toISOString().substring(0,10);
+  const filas = nuevos.map(n => [n.texto, n.cod, n.nom, hoy]);
+  try {
+    const r = await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({accion:'batch', hoja:'Alias_Preparaciones', filas: filas})}).then(r=>r.json());
+    if(r.ok) {
+      // Actualizar en memoria
+      nuevos.forEach(n => { aliasesMinuta[n.norm] = {cod:n.cod, nom:n.nom, fecha:hoy}; });
+      alert(`✓ ${nuevos.length} alias(es) guardados`);
+    } else {
+      alert('⚠ Error: ' + (r.error || 'sin info'));
+    }
+  } catch(e) {
+    alert('⚠ Error: ' + e.message);
+  }
 }
 
 initLogin();
