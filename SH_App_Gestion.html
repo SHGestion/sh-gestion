@@ -4973,7 +4973,7 @@ function prepararRacionesMinuta() {
   }
 
   // Ordenar por día y estructura
-  const ORDEN_EST = ['Proteico 1','Acompañamiento 1','Proteico 2','Acompañamiento 2','Hipocalorico','Acompañamiento Hipocalorico'];
+  const ORDEN_EST = ['Proteico 1','Proteico 2','Acompañamiento 1','Acompañamiento 2','Hipocalorico','Acompañamiento Hipocalorico'];
   racionesMinuta.sort((a,b) => {
     if(a.dia !== b.dia) return a.dia - b.dia;
     const ia = ORDEN_EST.indexOf(a.estructura);
