@@ -4701,7 +4701,13 @@ function renderMinutaResultado(mes) {
             </div>
             <div id="${cellId}-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d0d0d0;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.1);display:none"></div>
           </td>
-          <td style="padding:6px;vertical-align:top">${tag}</td>
+          <td style="padding:6px;vertical-align:top">
+            ${tag}
+            <button onclick="eliminarParteMinuta(${p._idx}, ${ptIdx})" title="Eliminar esta parte"
+              style="display:block;margin-top:4px;background:none;border:1px solid #e0e0e0;color:#999;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
+              onmouseover="this.style.background='#fee2e2';this.style.color='#c62828';this.style.borderColor='#fca5a5'"
+              onmouseout="this.style.background='none';this.style.color='#999';this.style.borderColor='#e0e0e0'">🗑 eliminar</button>
+          </td>
         </tr>`;
       });
     });
@@ -4772,6 +4778,22 @@ function seleccionarMinuta(cod, nom) {
   pt.nom = nom;
   pt.editado = true;
   cerrarEditorMinuta();
+  renderMinutaResultado(document.getElementById('minuta-metricas').lastChild?.textContent?.replace('Minuta: ','') || '');
+}
+
+function eliminarParteMinuta(pIdx, ptIdx) {
+  const plato = datosMinuta[pIdx];
+  if(!plato || !plato.partes[ptIdx]) return;
+  const pt = plato.partes[ptIdx];
+  // Confirmar
+  const txt = pt.texto + (pt.nom ? ' → ' + pt.nom : '');
+  if(!confirm(`¿Eliminar esta parte?\n\n"${txt}"\n\nÚsalo cuando la parte está ya incluida en el match del plato principal.`)) return;
+  // Si es la única parte del plato, eliminar el plato entero
+  if(plato.partes.length === 1) {
+    datosMinuta.splice(pIdx, 1);
+  } else {
+    plato.partes.splice(ptIdx, 1);
+  }
   renderMinutaResultado(document.getElementById('minuta-metricas').lastChild?.textContent?.replace('Minuta: ','') || '');
 }
 
