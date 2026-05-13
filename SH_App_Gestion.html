@@ -879,9 +879,46 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
         Click sobre cualquier match para cambiarlo.
       </p>
       <div id="minuta-tabla"></div>
+
+      <!-- ───── SPRINT 3: SELECTOR DE SEMANA + RACIONES + GENERACIÓN ───── -->
+      <div id="minuta-paso2" style="display:none;margin-top:18px;padding:14px;background:#fff8e1;border-radius:10px;border:1px solid #f59e0b">
+        <div style="font-size:14px;font-weight:600;color:#92400e;margin-bottom:10px">
+          📅 Paso 2: Seleccionar semana y definir raciones
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+          <div>
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Año</div>
+            <input type="number" id="minuta-anio" value="" style="width:80px;padding:6px;border:1px solid #d0d0d0;border-radius:6px;font-size:13px">
+          </div>
+          <div>
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Mes</div>
+            <select id="minuta-mes" style="padding:6px;border:1px solid #d0d0d0;border-radius:6px;font-size:13px">
+              <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+              <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+              <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+              <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Desde día</div>
+            <input type="number" id="minuta-desde" min="1" max="31" style="width:80px;padding:6px;border:1px solid #d0d0d0;border-radius:6px;font-size:13px">
+          </div>
+          <div>
+            <div style="font-size:11px;color:#666;margin-bottom:4px">Hasta día</div>
+            <input type="number" id="minuta-hasta" min="1" max="31" style="width:80px;padding:6px;border:1px solid #d0d0d0;border-radius:6px;font-size:13px">
+          </div>
+          <button class="btn" style="font-size:13px" onclick="prepararRacionesMinuta()">→ Preparar planificación</button>
+        </div>
+        <div style="font-size:11px;color:#666">
+          Raciones por defecto: MENU I = 50 · MENU II = 40 · Hipocalórico = 30. Podrás editar cada una.
+        </div>
+      </div>
+
+      <div id="minuta-raciones" style="display:none;margin-top:14px"></div>
+
       <div style="margin-top:18px;padding:14px;background:#f0f7ff;border-radius:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
         <div style="font-size:13px;color:#1F4E79">
-          <strong>Sprint 2 – Solo matching.</strong> En Sprint 3 agregaremos raciones y generación de Planificacion.
+          <strong>💡 Tip:</strong> guarda los aliases aprendidos antes de generar la planificación.
         </div>
         <button class="btn" style="font-size:13px" onclick="guardarAliasesMinuta()">💾 Guardar aliases aprendidos</button>
       </div>
@@ -4658,6 +4695,23 @@ function renderMinutaResultado(mes) {
     `<div style="font-size:12px;color:#888;margin-top:6px">Minuta: ${mes}</div>`;
 
   document.getElementById('minuta-resultado').style.display = 'block';
+  document.getElementById('minuta-paso2').style.display = 'block';
+  // Pre-llenar año, mes y rango de días con los datos de la minuta
+  try {
+    const dias = datosMinuta.map(p => p.dia).filter(d => d);
+    const minD = Math.min(...dias), maxD = Math.max(...dias);
+    // Inferir mes/año del título de la minuta (string tipo "Mayo 2026")
+    const mesNombres = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const mesActual = mes.toLowerCase();
+    let mesNum = mesNombres.findIndex(m => mesActual.includes(m)) + 1;
+    if(mesNum <= 0) mesNum = new Date().getMonth() + 1;
+    const anioMatch = mes.match(/(\d{4})/);
+    const anio = anioMatch ? parseInt(anioMatch[1]) : new Date().getFullYear();
+    document.getElementById('minuta-anio').value = anio;
+    document.getElementById('minuta-mes').value = mesNum;
+    document.getElementById('minuta-desde').value = minD;
+    document.getElementById('minuta-hasta').value = Math.min(minD + 6, maxD); // sugerir semana
+  } catch(e) {}
 
   const porDia = {};
   datosMinuta.forEach((p, idx) => {
@@ -4850,6 +4904,199 @@ async function guardarAliasesMinuta() {
   } catch(e) {
     alert('⚠ Error: ' + e.message);
   }
+}
+
+// ── SPRINT 3: PREPARAR RACIONES Y GENERAR PLANIFICACION ─────────────────────
+let racionesMinuta = []; // [{dia, fecha, estructura, cod, nombre, raciones}]
+
+function prepararRacionesMinuta() {
+  const anio = parseInt(document.getElementById('minuta-anio').value);
+  const mes = parseInt(document.getElementById('minuta-mes').value);
+  const desde = parseInt(document.getElementById('minuta-desde').value);
+  const hasta = parseInt(document.getElementById('minuta-hasta').value);
+  if(!anio || !mes || !desde || !hasta || desde > hasta) {
+    alert('Verifica año, mes y rango de días.');
+    return;
+  }
+
+  // Defaults de raciones según estructura
+  const RAC_DEFAULT = {
+    'MENU I': 50, 'MENU 1': 50,
+    'MENU II': 40, 'MENU 2': 40,
+    'HIPO': 30
+  };
+  function defRac(menuLbl) {
+    const m = menuLbl.toUpperCase();
+    if(m.includes('HIPO')) return 30;
+    if(m === 'MENU I' || m === 'MENU 1') return 50;
+    if(m === 'MENU II' || m === 'MENU 2') return 40;
+    return 30;
+  }
+
+  // Construir filas Planificacion: una por cada PARTE con match
+  racionesMinuta = [];
+  datosMinuta.forEach(p => {
+    if(p.dia < desde || p.dia > hasta) return;
+    const rac = defRac(p.menu);
+    // Estructuras según orden de las partes y según menú
+    p.partes.forEach((pt, idx) => {
+      if(!pt.cod) return; // solo partes con match
+      let estructura;
+      const menuUp = p.menu.toUpperCase();
+      if(menuUp.includes('HIPO')) {
+        estructura = idx === 0 ? 'Hipocalorico' : 'Acompañamiento Hipocalorico';
+      } else if(menuUp === 'MENU I' || menuUp === 'MENU 1') {
+        estructura = idx === 0 ? 'Proteico 1' : 'Acompañamiento 1';
+      } else if(menuUp === 'MENU II' || menuUp === 'MENU 2') {
+        estructura = idx === 0 ? 'Proteico 2' : 'Acompañamiento 2';
+      } else {
+        estructura = `${p.menu} parte ${idx+1}`;
+      }
+      // Fecha del día
+      const fecha = new Date(anio, mes - 1, p.dia);
+      const fechaStr = fecha.toISOString().substring(0,10);
+      racionesMinuta.push({
+        dia: p.dia,
+        fecha: fechaStr,
+        menu: p.menu,
+        estructura,
+        cod: pt.cod,
+        nombre: pt.nom,
+        raciones: rac
+      });
+    });
+  });
+
+  if(!racionesMinuta.length) {
+    alert('No hay preparaciones con match en el rango seleccionado.');
+    return;
+  }
+
+  // Ordenar por día y estructura
+  const ORDEN_EST = ['Proteico 1','Acompañamiento 1','Proteico 2','Acompañamiento 2','Hipocalorico','Acompañamiento Hipocalorico'];
+  racionesMinuta.sort((a,b) => {
+    if(a.dia !== b.dia) return a.dia - b.dia;
+    const ia = ORDEN_EST.indexOf(a.estructura);
+    const ib = ORDEN_EST.indexOf(b.estructura);
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+  });
+
+  renderRacionesMinuta();
+}
+
+function renderRacionesMinuta() {
+  const cont = document.getElementById('minuta-raciones');
+  // Agrupar por día
+  const porDia = {};
+  racionesMinuta.forEach((r, idx) => {
+    if(!porDia[r.dia]) porDia[r.dia] = [];
+    porDia[r.dia].push({...r, _idx: idx});
+  });
+
+  let html = `<div style="font-size:14px;font-weight:600;color:#1F4E79;margin-bottom:8px">
+    🎯 Paso 3: Ajustar raciones y generar planificación
+  </div>`;
+
+  Object.keys(porDia).sort((a,b) => +a - +b).forEach(dia => {
+    html += `<div style="background:#1F4E79;color:#fff;padding:6px 12px;border-radius:8px 8px 0 0;margin-top:10px;font-weight:600;font-size:13px">Día ${dia}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px">
+      <thead><tr style="background:#f5f5f7">
+        <th style="padding:6px;text-align:left;width:160px">Estructura</th>
+        <th style="padding:6px;text-align:center;width:60px">CDP</th>
+        <th style="padding:6px;text-align:left">Preparación</th>
+        <th style="padding:6px;text-align:center;width:90px">Raciones</th>
+      </tr></thead><tbody>`;
+    porDia[dia].forEach(r => {
+      html += `<tr style="border-bottom:1px solid #eee">
+        <td style="padding:6px"><strong>${r.estructura}</strong></td>
+        <td style="padding:6px;text-align:center;font-family:monospace;color:#666">${r.cod}</td>
+        <td style="padding:6px">${r.nombre}</td>
+        <td style="padding:6px;text-align:center">
+          <input type="number" min="0" max="500" value="${r.raciones}"
+            onchange="racionesMinuta[${r._idx}].raciones = parseInt(this.value)||0"
+            style="width:70px;padding:4px 6px;border:1px solid #d0d0d0;border-radius:4px;font-size:12px;text-align:center">
+        </td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  });
+
+  // Botón generación
+  const total = racionesMinuta.length;
+  const totalRac = racionesMinuta.reduce((s,r)=>s+r.raciones, 0);
+  html += `<div style="margin-top:14px;padding:14px;background:#e8f5e9;border-radius:10px">
+    <div style="font-size:13px;color:#1b5e20;margin-bottom:10px">
+      <strong>Resumen:</strong> ${total} preparaciones · ${totalRac} raciones totales
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btnp" onclick="generarPlanificacionSheets()" style="font-size:13px">
+        📊 Generar en Sheets
+      </button>
+      <button class="btn" onclick="descargarPlanificacionExcel()" style="font-size:13px">
+        ⬇ Descargar Excel
+      </button>
+      <button class="btn" onclick="ambasSalidas()" style="font-size:13px;background:#2e7d32;color:#fff">
+        ✓ Ambas
+      </button>
+    </div>
+  </div>`;
+
+  cont.innerHTML = html;
+  cont.style.display = 'block';
+}
+
+async function generarPlanificacionSheets() {
+  if(!racionesMinuta.length) { alert('Primero prepara las raciones.'); return; }
+  // Nombre de la hoja: Planificacion_YYYY-MM-DD (fecha del primer día)
+  const primerFecha = racionesMinuta[0].fecha;
+  const nombreHoja = 'Planificacion_' + primerFecha;
+  if(!confirm(`¿Crear hoja "${nombreHoja}" en Sheets con ${racionesMinuta.length} preparaciones?`)) return;
+
+  try {
+    // Crear hoja con encabezado
+    await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({accion:'crearHoja', hoja: nombreHoja,
+        encabezados: ['Día','Fecha','Estructura','CDP','Nombre preparación','Raciones']})}).then(r=>r.json());
+
+    // Si la hoja ya existía, limpiarla
+    await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({accion:'clear', hoja: nombreHoja})}).then(r=>r.json());
+
+    // Reescribir encabezado
+    await gsPost(nombreHoja, ['Día','Fecha','Estructura','CDP','Nombre preparación','Raciones']);
+
+    // Filas en batch
+    const filas = racionesMinuta.map(r => [r.dia, r.fecha, r.estructura, r.cod, r.nombre, r.raciones]);
+    const LOTE = 100;
+    for(let i = 0; i < filas.length; i += LOTE) {
+      await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({accion:'batch', hoja: nombreHoja, filas: filas.slice(i, i+LOTE)})}).then(r=>r.json());
+    }
+    alert(`✓ Hoja "${nombreHoja}" creada con ${filas.length} filas.`);
+  } catch(e) {
+    alert('⚠ Error: ' + e.message);
+  }
+}
+
+function descargarPlanificacionExcel() {
+  if(!racionesMinuta.length) { alert('Primero prepara las raciones.'); return; }
+  // Usar SheetJS para generar el .xlsx
+  const ws_data = [
+    ['Día','Fecha','Estructura','CDP','Nombre preparación','Raciones'],
+    ...racionesMinuta.map(r => [r.dia, r.fecha, r.estructura, r.cod, r.nombre, r.raciones])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(ws_data);
+  // Anchos de columna
+  ws['!cols'] = [{wch:6},{wch:12},{wch:30},{wch:8},{wch:55},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Planificacion');
+  const primerFecha = racionesMinuta[0].fecha;
+  XLSX.writeFile(wb, `Planificacion_${primerFecha}.xlsx`);
+}
+
+async function ambasSalidas() {
+  await generarPlanificacionSheets();
+  descargarPlanificacionExcel();
 }
 
 initLogin();
