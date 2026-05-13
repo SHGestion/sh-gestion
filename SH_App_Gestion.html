@@ -1179,7 +1179,7 @@ async function doLogin() {
   document.getElementById('app-main').style.display = 'block';
   document.getElementById('header-usuario').textContent = u;
   // Tabs visibles por rol
-  const TABS_ADMIN = ['dashboard','facturas','consumo','movimientos','stock','stockinicial','inventario','marcaciones','gastos'];
+  const TABS_ADMIN = ['dashboard','facturas','consumo','movimientos','stock','stockinicial','inventario','marcaciones','gastos','minuta'];
   const TABS_COCINA = ['consumo','movimientos','stock','inventario']; // Mari
   const tabsPermitidos = rolActual === 'admin' ? TABS_ADMIN : TABS_COCINA;
   document.querySelectorAll('.tab[id^="tab-btn-"]').forEach(btn => {
