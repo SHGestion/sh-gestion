@@ -4816,12 +4816,22 @@ function buscarEnEditorMinuta(query) {
   matches.sort((a,b) => b.score - a.score);
   const top = matches.slice(0, 25);
   if(!top.length) { cont.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">Sin resultados</div>'; return; }
-  cont.innerHTML = top.map(r =>
-    `<div onclick="seleccionarMinuta('${r.cod}', ${JSON.stringify(r.nom)})" style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
-      <span style="color:#666;font-family:monospace;font-size:10px">${r.cod}</span> ${r.nom}
-      ${r.cat ? '<div style="font-size:10px;color:#aaa">'+r.cat+'</div>' : ''}
-    </div>`
-  ).join('');
+  cont.innerHTML = top.map(r => {
+    // Escapar el nombre para que sea seguro dentro del HTML
+    const nomSafe = String(r.nom).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const catSafe = r.cat ? String(r.cat).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    return `<div data-cod="${r.cod}" onclick="seleccionarMinutaPorCod(this.getAttribute('data-cod'))" style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f0f0f0" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
+      <span style="color:#666;font-family:monospace;font-size:10px">${r.cod}</span> ${nomSafe}
+      ${catSafe ? '<div style="font-size:10px;color:#aaa">'+catSafe+'</div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function seleccionarMinutaPorCod(cod) {
+  // Buscar el nombre desde recetasGS usando el código (robusto ante caracteres especiales)
+  const receta = recetasGS.find(r => String(r.cod) === String(cod));
+  if(!receta) { alert('No encontré la receta con código ' + cod); return; }
+  seleccionarMinuta(receta.cod, receta.nom);
 }
 
 function seleccionarMinuta(cod, nom) {
