@@ -1564,13 +1564,20 @@ function renderC() {
   const todo2 = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
 
   // Calcular el consumo TOTAL agregado por ingrediente para el día completo
-  // (la misma cebolla puede aparecer en varias preparaciones)
+  // (la misma cebolla puede aparecer en varias preparaciones).
+  // Si una fila tiene real=0 explícito, esa fila NO suma al agregado (el usuario
+  // decidió no usarla).
   const consumoAgregado = {}; // {INGREDIENTE_UPPER: {total, filas:[idx], cantFilas}}
   todo2.forEach((row, idx) => {
     const key = (row.ing || '').toUpperCase().trim();
     if(!key) return;
     const r = parseFloat(row.real);
-    const requerido = isNaN(r) ? (row.plan || 0) : Math.max(r, row.plan || 0);
+    let requerido;
+    if(row.real !== '' && !isNaN(r) && r === 0) {
+      requerido = 0;  // explícitamente cero, no consume
+    } else {
+      requerido = isNaN(r) ? (row.plan || 0) : Math.max(r, row.plan || 0);
+    }
     if(!consumoAgregado[key]) consumoAgregado[key] = { total: 0, filas: [], cantFilas: 0 };
     consumoAgregado[key].total += requerido;
     consumoAgregado[key].filas.push(idx);
@@ -1641,12 +1648,17 @@ function renderC() {
   });
 
   // Mostrar alternativas automáticamente solo cuando el CONSUMO AGREGADO del día
-  // supere el stock disponible (la misma cebolla en varias preparaciones)
+  // supere el stock disponible (la misma cebolla en varias preparaciones).
+  // Excepción: si esta fila específica fue puesta en 0, no mostramos alternativas
+  // para esta fila (el usuario explícitamente decidió no usarla).
   setTimeout(() => {
     todo2.forEach((row, i) => {
       const ingKey = (row.ing||'').toUpperCase().trim();
       const stk = stockDia[ingKey];
       const ag = consumoAgregado[ingKey];
+      // Si esta fila tiene real = 0 explícito, no mostrar alternativas para esta fila
+      const realRow = parseFloat(row.real);
+      if(row.real !== '' && !isNaN(realRow) && realRow === 0) return;
       if(stk !== undefined && ag && ag.total > 0 && stk < ag.total - 0.001) {
         mostrarAlternativasInline(i, row.ing, stockDia);
       }
