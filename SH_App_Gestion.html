@@ -1563,6 +1563,20 @@ function renderC() {
   tb.innerHTML = '';
   const todo2 = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
 
+  // Calcular el consumo TOTAL agregado por ingrediente para el día completo
+  // (la misma cebolla puede aparecer en varias preparaciones)
+  const consumoAgregado = {}; // {INGREDIENTE_UPPER: {total, filas:[idx], cantFilas}}
+  todo2.forEach((row, idx) => {
+    const key = (row.ing || '').toUpperCase().trim();
+    if(!key) return;
+    const r = parseFloat(row.real);
+    const requerido = isNaN(r) ? (row.plan || 0) : Math.max(r, row.plan || 0);
+    if(!consumoAgregado[key]) consumoAgregado[key] = { total: 0, filas: [], cantFilas: 0 };
+    consumoAgregado[key].total += requerido;
+    consumoAgregado[key].filas.push(idx);
+    consumoAgregado[key].cantFilas++;
+  });
+
   todo2.forEach((row, i) => {
     const r = parseFloat(row.real);
     const isM = i >= ingredientesDia.length;
@@ -1587,18 +1601,29 @@ function renderC() {
       ? `<span style="font-size:12px;color:#888">${row.raciones||''}</span>`
       : `<input type="number" min="0" step="1" value="${row.racActual||row.raciones||''}" style="font-size:12px;width:55px;text-align:right" onchange="updRaciones(${i},this.value)">`;
 
-    // Stock disponible: calcular y formatear con color según suficiencia
-    const ingKey = (row.ing||'').toUpperCase();
+    // Stock disponible: comparar contra el consumo AGREGADO del día (no solo esta fila)
+    const ingKey = (row.ing||'').toUpperCase().trim();
     const stockKg = stockDia[ingKey] !== undefined ? stockDia[ingKey] : null;
     const requerido = isNaN(r) ? row.plan : Math.max(realVal, row.plan);
+    const agregado = consumoAgregado[ingKey] || { total: requerido, cantFilas: 1 };
+    const otrasFilas = agregado.cantFilas - 1;  // cuántas OTRAS preparaciones usan el mismo ingrediente
     let stockHtml = '<span style="color:#bbb">—</span>';
     if(stockKg !== null) {
-      const insuficiente = stockKg < requerido - 0.001;
+      // El "insuficiente" se evalúa contra el TOTAL agregado del día, no contra la fila individual
+      const insuficiente = stockKg < agregado.total - 0.001;
       const cero = stockKg <= 0.001;
       const colorStk = cero ? '#c62828' : insuficiente ? '#e65100' : '#2e7d32';
       const peso = (cero || insuficiente) ? '700' : '400';
       const icono = cero ? '⛔' : insuficiente ? '⚠' : '';
-      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px">${icono} ${stockKg.toFixed(3)}</span>`;
+      let tooltip = `Stock: ${stockKg.toFixed(3)} kg`;
+      if(otrasFilas > 0) {
+        tooltip += ` · Consumo total día: ${agregado.total.toFixed(3)} kg (${agregado.cantFilas} preparaciones)`;
+      }
+      // Indicador visual: si hay otras filas, mostrar un pequeño marcador
+      const sufijo = otrasFilas > 0
+        ? `<span style="font-size:10px;color:#777;display:block;margin-top:1px" title="${tooltip}">×${agregado.cantFilas} total ${agregado.total.toFixed(2)}</span>`
+        : '';
+      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockKg.toFixed(3)}</span>${sufijo}`;
     }
 
     tb.innerHTML += `<tr id="crow-${i}">
@@ -1615,14 +1640,14 @@ function renderC() {
     <tr id="calt-${i}" style="display:none"><td colspan="8" style="padding:0 8px 8px;background:#fff8e1"><div id="calt-inner-${i}" style="font-size:12px;color:#888"></div></td></tr>`;
   });
 
-  // Mostrar alternativas automáticamente para los ingredientes con stock insuficiente
+  // Mostrar alternativas automáticamente solo cuando el CONSUMO AGREGADO del día
+  // supere el stock disponible (la misma cebolla en varias preparaciones)
   setTimeout(() => {
-    const todoAlt = [...ingredientesDia, ...filasExtra];
-    todoAlt.forEach((row, i) => {
-      const ingKey = (row.ing||'').toUpperCase();
+    todo2.forEach((row, i) => {
+      const ingKey = (row.ing||'').toUpperCase().trim();
       const stk = stockDia[ingKey];
-      const requerido = parseFloat(row.real) || row.plan || 0;
-      if(stk !== undefined && requerido > 0 && stk < requerido - 0.001) {
+      const ag = consumoAgregado[ingKey];
+      if(stk !== undefined && ag && ag.total > 0 && stk < ag.total - 0.001) {
         mostrarAlternativasInline(i, row.ing, stockDia);
       }
     });
