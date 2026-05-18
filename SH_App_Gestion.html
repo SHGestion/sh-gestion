@@ -3767,24 +3767,31 @@ async function cargarDashboard() {
     });
   }
 
-  // Calcular stock valorizado actual
+  // Calcular stock valorizado actual (misma lógica que la pestaña Stock)
+  // Prioridad de precio: último precio en Movimientos > Maestro_Precios
   const stockActualVal = {};
+  const precioMov = {};  // último precio registrado en Movimientos por ingrediente
   if(movRows && movRows.length > 1) {
     movRows.slice(1).forEach(r => {
       const ing = (r[2]||'').toString().trim().toUpperCase();
       if(!ing) return;
       const tipo = (r[1]||'').toString().trim().toUpperCase();
       const cant = parseFloat(r[3])||0;
+      const precio = parseFloat(r[5])||0;
       if(!stockActualVal[ing]) stockActualVal[ing] = 0;
-      if(['STOCK INICIAL','ENTRADA'].includes(tipo)) stockActualVal[ing] += cant;
+      if(['STOCK INICIAL','ENTRADA'].includes(tipo)) {
+        stockActualVal[ing] += cant;
+        if(precio > 0) precioMov[ing] = precio;  // captura último precio de entrada
+      }
       else if(['SALIDA REAL','SALIDA PLAN','MERMA'].includes(tipo)) stockActualVal[ing] -= cant;
       else if(tipo === 'AJUSTE') stockActualVal[ing] += cant;
     });
   }
   let stockValorizado = 0;
   Object.entries(stockActualVal).forEach(([ing, cant]) => {
-    if(cant > 0) {
-      const precio = preciosMaestro[ing] || 0;
+    if(cant > 0.001) {
+      // Misma prioridad que la pestaña Stock: último precio Movimiento > Maestro
+      const precio = precioMov[ing] || preciosMaestro[ing] || 0;
       stockValorizado += cant * precio;
     }
   });
