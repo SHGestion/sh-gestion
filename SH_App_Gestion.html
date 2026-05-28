@@ -946,6 +946,7 @@ let mapeosFacturas = {};
 let ingredientesDia = [];
 let filasExtra = [];
 let stockDia = {}; // stock actual por ingrediente (UPPERCASE), calculado al cargarDia
+let diaTieneRegistros = false; // true si el día ya fue registrado (bloquea edición)
 
 // ── UTILIDADES ───────────────────────────────────────────────────────────────
 function parseFecha(raw) {
@@ -1441,6 +1442,7 @@ async function cargarDia() {
     yaRegistrado[ing].cant += cant;
   });
   const tieneRegistros = registradosDia.length > 0;
+  diaTieneRegistros = tieneRegistros;  // global, usado por renderC para bloquear edición
 
   // Verificar borrador
   let borradorFecha = null;
@@ -1592,9 +1594,19 @@ function renderC() {
     const esExacto = dif !== null && Math.abs(dif) <= 0.001;
     const esCero = row.real !== '' && realVal === 0;
 
-    const ds = dif !== null ? (dif >= 0 ? '+' : '') + dif.toFixed(3) + ' kg' : '—';
-    const dc = dif === null ? '#888' : esExacto || esCero ? '#2e7d32' : dif > 0.05 ? '#c62828' : dif < -0.05 ? '#e65100' : '#2e7d32';
-    const tipo = dif === null ? '—' : esCero ? 'No usado' : esExacto ? 'OK' : dif > 0.05 ? 'Exceso' : dif < -0.05 ? 'Merma' : 'OK';
+    // Pendiente en día ya registrado: marcar como "no registrado"
+    const esPendienteNoReg = diaTieneRegistros && !row.yaRegistrado && !row.manual;
+
+    let ds, dc, tipo;
+    if(esPendienteNoReg) {
+      ds = `(plan ${row.plan.toFixed(3)} no rebajado)`;
+      dc = '#e65100';
+      tipo = 'No registrado';
+    } else {
+      ds = dif !== null ? (dif >= 0 ? '+' : '') + dif.toFixed(3) + ' kg' : '—';
+      dc = dif === null ? '#888' : esExacto || esCero ? '#2e7d32' : dif > 0.05 ? '#c62828' : dif < -0.05 ? '#e65100' : '#2e7d32';
+      tipo = dif === null ? '—' : esCero ? 'No usado' : esExacto ? 'OK' : dif > 0.05 ? 'Exceso' : dif < -0.05 ? 'Merma' : 'OK';
+    }
 
     const ingH = isM
       ? `<input type="text" value="${row.ing}" placeholder="Ingrediente" style="font-size:12px" onchange="updC(${i},'ing',this.value)" list="maestro-list">`
@@ -1633,14 +1645,29 @@ function renderC() {
       stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockKg.toFixed(3)}</span>${sufijo}`;
     }
 
+    let inputReal;
+    if(row.yaRegistrado) {
+      // Ya registrado: mostrar valor bloqueado
+      inputReal = `<input type="number" value="${row.real !== '' ? parseFloat(row.real).toFixed(3) : row.plan.toFixed(3)}" disabled
+          style="font-size:13px;background:#f0f0f0;color:#555;cursor:not-allowed;border:1px solid #ddd" title="Ya registrado — no editable">
+          <div style="font-size:9px;color:#999;margin-top:1px">🔒 registrado</div>`;
+    } else if(diaTieneRegistros && !row.manual) {
+      // Día ya registrado pero este ingrediente quedó pendiente (no se registró)
+      inputReal = `<input type="number" value="" disabled placeholder="—"
+          style="font-size:13px;background:#fff3e0;color:#e65100;cursor:not-allowed;border:1px solid #ffcc80" title="No se registró en su momento">
+          <div style="font-size:9px;color:#e65100;margin-top:1px">⚠ no registrado</div>`;
+    } else {
+      // Editable normal (día sin registrar, o fila manual nueva)
+      inputReal = `<input type="number" step="0.001" min="0" value="${row.real !== '' ? parseFloat(row.real).toFixed(3) : row.plan.toFixed(3)}" placeholder="${row.plan.toFixed(3)}"
+          style="font-size:13px" onchange="updC(${i},'real',this.value)" id="cinput-${i}">`;
+    }
     tb.innerHTML += `<tr id="crow-${i}">
       <td>${prepH}</td>
       <td>${ingH}</td>
       <td style="text-align:right">${racH}</td>
       <td style="text-align:right;color:#888;font-size:12px">${row.plan.toFixed(3)}</td>
       <td style="text-align:right">${stockHtml}</td>
-      <td><input type="number" step="0.001" min="0" value="${row.real !== '' ? parseFloat(row.real).toFixed(3) : row.plan.toFixed(3)}" placeholder="${row.plan.toFixed(3)}"
-          style="font-size:13px" onchange="updC(${i},'real',this.value)" id="cinput-${i}"></td>
+      <td>${inputReal}</td>
       <td style="text-align:right;color:${dc};font-weight:600;font-size:13px">${ds}</td>
       <td style="font-size:12px;color:${dc}">${tipo}</td>
     </tr>
@@ -1775,15 +1802,11 @@ async function regConsumo() {
   if(!fecha) { alert('Selecciona una fecha.'); return; }
   const obs = document.getElementById('cobs').value;
   const todo = [...ingredientesDia, ...filasExtra];
-  // Solo registrar los NO registrados o los que tienen diferencia respecto a lo registrado
+  // Solo registrar los NO registrados. Los ya registrados están bloqueados en la UI
+  // y no se vuelven a registrar (evita duplicar consumos).
   const conReal = todo.filter(r => {
+    if(r.yaRegistrado) return false;  // ya registrado = bloqueado, no re-registrar
     if(!r.real || parseFloat(r.real) === 0) return false;
-    // Si ya estaba registrado, solo incluir si el valor fue modificado manualmente
-    if(r.yaRegistrado) {
-      const cantReg = parseFloat(r.cantRegistrada)||0;
-      const cantNueva = parseFloat(r.real)||0;
-      return Math.abs(cantNueva - cantReg) > 0.001; // hay diferencia = nuevo ingreso adicional
-    }
     return true;
   });
 
