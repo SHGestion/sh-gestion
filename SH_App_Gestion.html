@@ -2272,15 +2272,15 @@ async function procesarXMLsMasivo(files) {
     const logRows = await gsGet('Facturas_Log');
     if(logRows && logRows.length > 1) {
       logRows.slice(1).forEach(r => {
-        const fecha = r[0], prov = (r[1]||'').toString().trim().toUpperCase();
+        const fecha = r[0];
         const folio = (r[2]||'').toString().trim();
-        if(folio) foliosRegistrados[folio + '|' + prov] = fecha;
+        if(folio) foliosRegistrados[folio] = fecha;  // clave SOLO por folio (proveedor a veces vacío)
       });
     }
   } catch(e) { console.warn('No se pudo leer Facturas_Log:', e); }
   xmlResultados.forEach(f => {
-    const key = (f.folio||'').toString().trim() + '|' + (f.proveedor||'').toString().trim().toUpperCase();
-    f._yaRegistrada = foliosRegistrados[key] || null;
+    const folioKey = (f.folio||'').toString().trim();
+    f._yaRegistrada = foliosRegistrados[folioKey] || null;
   });
   const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
 
@@ -2429,12 +2429,12 @@ async function registrarTodosXML() {
   try {
     const logRows = await gsGet('Facturas_Log');
     if(logRows && logRows.length > 1) {
-      // Construir set de folios ya registrados: "FOLIO|PROVEEDOR"
+      // Construir set de folios ya registrados (clave SOLO por folio)
       const yaRegistradas = {};
       logRows.slice(1).forEach(r => {
-        const fecha = r[0], prov = (r[1]||'').toString().trim().toUpperCase();
+        const fecha = r[0];
         const folio = (r[2]||'').toString().trim();
-        if(folio) yaRegistradas[folio + '|' + prov] = fecha;
+        if(folio) yaRegistradas[folio] = fecha;
       });
 
       // Detectar cuáles de las facturas actuales ya están
@@ -2442,9 +2442,9 @@ async function registrarTodosXML() {
       xmlResultados.forEach(fact => {
         const itemsAuto = fact.items.filter(it => it.conf > 0);
         if(!itemsAuto.length) return;
-        const key = (fact.folio||'').toString().trim() + '|' + (fact.proveedor||'').toString().trim().toUpperCase();
-        if(yaRegistradas[key]) {
-          duplicadas.push({ folio: fact.folio, proveedor: fact.proveedor, fechaPrevia: yaRegistradas[key] });
+        const folioKey = (fact.folio||'').toString().trim();
+        if(yaRegistradas[folioKey]) {
+          duplicadas.push({ folio: fact.folio, proveedor: fact.proveedor, fechaPrevia: yaRegistradas[folioKey] });
         }
       });
 
@@ -2870,12 +2870,11 @@ async function registrarFactura() {
     try {
       const logRows = await gsGet('Facturas_Log');
       if(logRows && logRows.length > 1) {
-        const keyActual = nfactCheck.toString().trim() + '|' + provCheck.toString().trim().toUpperCase();
+        const folioActual = nfactCheck.toString().trim();
         let fechaPrevia = null;
         logRows.slice(1).forEach(r => {
-          const prov = (r[1]||'').toString().trim().toUpperCase();
           const folio = (r[2]||'').toString().trim();
-          if(folio + '|' + prov === keyActual) fechaPrevia = r[0];
+          if(folio === folioActual) fechaPrevia = r[0];
         });
         if(fechaPrevia) {
           if(!confirm(`⚠ ATENCIÓN: La factura folio ${nfactCheck} de ${provCheck} ya fue registrada el ${fechaPrevia}.\n\nSi continúas, se DUPLICARÁN los movimientos en bodega.\n\n¿Registrar de todos modos?`)) {
