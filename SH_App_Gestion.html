@@ -2265,20 +2265,44 @@ async function procesarXMLsMasivo(files) {
   // Mostrar resumen
   const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
   const autoItems = totalItems - xmlPendienteMapeo.length;
+
+  // Marcar facturas ya registradas previamente (validación de duplicados)
+  let foliosRegistrados = {};
+  try {
+    const logRows = await gsGet('Facturas_Log');
+    if(logRows && logRows.length > 1) {
+      logRows.slice(1).forEach(r => {
+        const fecha = r[0], prov = (r[1]||'').toString().trim().toUpperCase();
+        const folio = (r[2]||'').toString().trim();
+        if(folio) foliosRegistrados[folio + '|' + prov] = fecha;
+      });
+    }
+  } catch(e) { console.warn('No se pudo leer Facturas_Log:', e); }
+  xmlResultados.forEach(f => {
+    const key = (f.folio||'').toString().trim() + '|' + (f.proveedor||'').toString().trim().toUpperCase();
+    f._yaRegistrada = foliosRegistrados[key] || null;
+  });
+  const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
+
   document.getElementById('dzp').innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
       ✓ ${xmlResultados.length} factura(s) procesadas
     </div>
+    ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Revisa antes de registrar para no duplicar.
+    </div>` : ''}
     <div style="font-size:13px;color:#555;margin-bottom:4px">
       • ${autoItems} ítems con mapeo automático
     </div>
     <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
       • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
     </div>
-    ${xmlResultados.map(f=>`
-      <div style="font-size:12px;background:#f5f5f7;padding:6px 10px;border-radius:6px;margin-bottom:4px">
+    ${xmlResultados.map((f,fi)=>`
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
         <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
         <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
       </div>`).join('')}`;
 
   document.getElementById('dz').classList.add('loaded');
@@ -2332,9 +2356,115 @@ function revisarMapeoXML() {
   fGo(2);
 }
 
+function descartarFacturaXML(idx) {
+  const f = xmlResultados[idx];
+  if(!f) return;
+  if(!confirm(`¿Descartar la factura folio ${f.folio} de ${f.proveedor}?\n\nNo se registrará. Las demás facturas siguen disponibles.`)) return;
+  // Quitar sus ítems pendientes de mapeo también
+  const foliosItem = (f.items||[]).map(it => it.desc);
+  xmlPendienteMapeo = xmlPendienteMapeo.filter(p => p.facturaFolio !== f.folio);
+  // Eliminar la factura
+  xmlResultados.splice(idx, 1);
+  if(xmlResultados.length === 0) {
+    document.getElementById('dzp').innerHTML = '<div style="padding:14px;text-align:center;color:#888">No quedan facturas. Sube nuevos archivos.</div>';
+    document.getElementById('dz').classList.remove('loaded');
+    return;
+  }
+  // Re-renderizar el resumen
+  rerenderResumenXML();
+}
+
+function rerenderResumenXML() {
+  const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
+  const autoItems = totalItems - xmlPendienteMapeo.length;
+  const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
+
+  document.getElementById('dzp').innerHTML = `
+    <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
+      ✓ ${xmlResultados.length} factura(s) procesadas
+    </div>
+    ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Descártalas o registra con cuidado.
+    </div>` : ''}
+    <div style="font-size:13px;color:#555;margin-bottom:4px">
+      • ${autoItems} ítems con mapeo automático
+    </div>
+    <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
+      • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
+    </div>
+    ${xmlResultados.map((f,fi)=>`
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
+        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
+      </div>`).join('')}`;
+
+  // Re-crear botones de acción
+  const actDiv = document.createElement('div');
+  actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
+  if(xmlPendienteMapeo.length > 0) {
+    actDiv.innerHTML = `
+      <button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">
+        🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo
+      </button>
+      <button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">
+        Registrar lo mapeado + revisar nuevos →
+      </button>`;
+  } else {
+    actDiv.innerHTML = `
+      <button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">
+        ✓ Registrar todas las facturas →
+      </button>`;
+  }
+  document.getElementById('dzp').appendChild(actDiv);
+}
+
 async function registrarTodosXML() {
   const u = getUsuario();
   if(!u) { alert('Selecciona un usuario.'); return; }
+
+  // ── VALIDACIÓN DE DUPLICADOS ──────────────────────────────────────────
+  // Leer Facturas_Log y verificar si algún folio+proveedor ya fue registrado
+  try {
+    const logRows = await gsGet('Facturas_Log');
+    if(logRows && logRows.length > 1) {
+      // Construir set de folios ya registrados: "FOLIO|PROVEEDOR"
+      const yaRegistradas = {};
+      logRows.slice(1).forEach(r => {
+        const fecha = r[0], prov = (r[1]||'').toString().trim().toUpperCase();
+        const folio = (r[2]||'').toString().trim();
+        if(folio) yaRegistradas[folio + '|' + prov] = fecha;
+      });
+
+      // Detectar cuáles de las facturas actuales ya están
+      const duplicadas = [];
+      xmlResultados.forEach(fact => {
+        const itemsAuto = fact.items.filter(it => it.conf > 0);
+        if(!itemsAuto.length) return;
+        const key = (fact.folio||'').toString().trim() + '|' + (fact.proveedor||'').toString().trim().toUpperCase();
+        if(yaRegistradas[key]) {
+          duplicadas.push({ folio: fact.folio, proveedor: fact.proveedor, fechaPrevia: yaRegistradas[key] });
+        }
+      });
+
+      if(duplicadas.length > 0) {
+        const lista = duplicadas.map(d =>
+          `• Folio ${d.folio} — ${d.proveedor} (registrada el ${d.fechaPrevia})`
+        ).join('\n');
+        const msg = `⚠ ATENCIÓN: ${duplicadas.length} factura(s) ya fueron registradas previamente:\n\n${lista}\n\n` +
+          `Si continúas, se DUPLICARÁN los movimientos en bodega.\n\n¿Registrar de todos modos?`;
+        if(!confirm(msg)) {
+          // Cancelado por el usuario
+          return;
+        }
+      }
+    }
+  } catch(e) {
+    console.warn('No se pudo validar duplicados:', e);
+    // Continuamos igual; la validación es preventiva, no bloqueante ante error de lectura
+  }
+  // ──────────────────────────────────────────────────────────────────────
 
   // Si NO hay ítems con mapeo automático y SÍ hay pendientes,
   // saltar directo al flujo de revisión manual (no hay nada que registrar)
@@ -2731,6 +2861,32 @@ function fGo(n) {
 async function registrarFactura() {
   const u = getUsuario();
   if(!u){alert('Selecciona un usuario.');return;}
+
+  // ── VALIDACIÓN DE DUPLICADO (imagen/PDF) ──────────────────────────────
+  const fechaCheck = document.getElementById('ffecha').value;
+  const provCheck = document.getElementById('fprov').value;
+  const nfactCheck = document.getElementById('fnum').value;
+  if(nfactCheck && provCheck) {
+    try {
+      const logRows = await gsGet('Facturas_Log');
+      if(logRows && logRows.length > 1) {
+        const keyActual = nfactCheck.toString().trim() + '|' + provCheck.toString().trim().toUpperCase();
+        let fechaPrevia = null;
+        logRows.slice(1).forEach(r => {
+          const prov = (r[1]||'').toString().trim().toUpperCase();
+          const folio = (r[2]||'').toString().trim();
+          if(folio + '|' + prov === keyActual) fechaPrevia = r[0];
+        });
+        if(fechaPrevia) {
+          if(!confirm(`⚠ ATENCIÓN: La factura folio ${nfactCheck} de ${provCheck} ya fue registrada el ${fechaPrevia}.\n\nSi continúas, se DUPLICARÁN los movimientos en bodega.\n\n¿Registrar de todos modos?`)) {
+            return;
+          }
+        }
+      }
+    } catch(e) { console.warn('No se pudo validar duplicado:', e); }
+  }
+  // ──────────────────────────────────────────────────────────────────────
+
   const btn = document.getElementById('btnreg');
   btn.disabled = true;
   btn.textContent = 'Registrando...';
