@@ -1465,6 +1465,16 @@ async function cargarDia() {
       const ingNorm = normalizarIng(r.ingrediente);
       const ingKey = ingNorm.toUpperCase();
       const regInfo = yaRegistrado[ingKey];
+      // Si el día YA tiene registros y este ingrediente NO está registrado,
+      // queda pendiente con real vacío (no se precarga el plan → no se re-registra)
+      let realInicial;
+      if(regInfo) {
+        realInicial = regInfo.cant.toFixed(3);
+      } else if(tieneRegistros) {
+        realInicial = '';  // pendiente en día registrado → vacío
+      } else {
+        realInicial = (r.crudoTotal / 1000).toFixed(3);  // día sin registrar → precarga plan
+      }
       return {
         prep: r.prep,
         ing: ingNorm,
@@ -1473,7 +1483,7 @@ async function cargarDia() {
         racActual: r.raciones,
         gxr: r.raciones > 0 ? r.crudoTotal / r.raciones : 0,
         plan: parseFloat((r.crudoTotal / 1000).toFixed(4)),
-        real: regInfo ? regInfo.cant.toFixed(3) : (r.crudoTotal / 1000).toFixed(3),
+        real: realInicial,
         yaRegistrado: !!regInfo,
         cantRegistrada: regInfo ? regInfo.cant : null
       };
@@ -1831,10 +1841,12 @@ async function regConsumo() {
   // Verificar stock — bloquear si disponible <= 0 o quedaría negativo
   const sinStock = [];
   Object.entries(consumoAgrupado).forEach(([ing, consumo]) => {
-    const disponible = stockActual[ing] !== undefined ? stockActual[ing] : null;
+    let disponible = stockActual[ing] !== undefined ? stockActual[ing] : null;
+    // Limpiar ruido de punto flotante (valores tipo -6e-16 son en realidad 0)
+    if(disponible !== null && Math.abs(disponible) < 0.0001) disponible = 0;
     const proyectado = disponible !== null ? disponible - consumo : null;
     if(disponible === null || disponible <= 0) {
-      sinStock.push({ ing, disponible: disponible !== null ? disponible : 'Sin registro', consumo: consumo.toFixed(3), deficit: consumo.toFixed(3) });
+      sinStock.push({ ing, disponible: disponible !== null ? disponible.toFixed(3) : 'Sin registro', consumo: consumo.toFixed(3), deficit: consumo.toFixed(3) });
     } else if(proyectado < -0.001) {
       sinStock.push({ ing, disponible: disponible.toFixed(3), consumo: consumo.toFixed(3), deficit: Math.abs(proyectado).toFixed(3) });
     }
