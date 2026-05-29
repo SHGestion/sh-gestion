@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lista de Compras · SH</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a3340;
+    --txt:#e6edf3; --muted:#8b98a8; --accent:#3fb950; --accent2:#58a6ff;
+    --done:#6e7681; --danger:#f85149;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt);padding:20px;max-width:1100px;margin:0 auto}
+  h1{font-size:1.45rem;font-weight:700;letter-spacing:-.5px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:.88rem;margin-bottom:18px}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}
+  select,input[type=text]{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:10px 14px;border-radius:10px;font-size:.95rem}
+  input[type=text]{flex:1;min-width:180px}
+  select{min-width:160px;cursor:pointer}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:.85rem;color:var(--muted)}
+  .stat b{color:var(--txt)}
+  .prov{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+  .prov-head{display:flex;justify-content:space-between;align-items:center;padding:13px 18px;background:var(--panel2);cursor:pointer;user-select:none}
+  .prov-head h2{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:10px}
+  .badge{background:var(--accent2);color:#04101f;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px}
+  .prov-total{color:var(--muted);font-size:.88rem}
+  .prov-total b{color:var(--accent)}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 14px;text-align:left;font-size:.9rem;border-top:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:.76rem;text-transform:uppercase;letter-spacing:.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.done td{color:var(--done);text-decoration:line-through}
+  tr.done td .reassign{text-decoration:none}
+  .chk{width:20px;height:20px;cursor:pointer;accent-color:var(--accent)}
+  .reassign{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:4px 8px;border-radius:8px;font-size:.82rem;cursor:pointer}
+  .empty{color:var(--muted);text-align:center;padding:40px}
+  .hidden{display:none}
+  .foot{color:var(--muted);font-size:.78rem;text-align:center;margin-top:24px;line-height:1.5}
+  button.act{background:var(--accent);color:#04140a;border:none;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer;font-size:.9rem}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);padding:10px 14px;border-radius:10px;cursor:pointer;font-size:.9rem}
+  button.del{background:transparent;color:var(--danger);border:1px solid var(--danger);padding:10px 14px;border-radius:10px;cursor:pointer;font-size:.9rem}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 18px;border-radius:10px;font-size:.85rem;opacity:0;transition:.3s;pointer-events:none}
+  .toast.show{opacity:1}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:var(--accent2);border-radius:50%;animation:r .7s linear infinite;vertical-align:middle}
+  @keyframes r{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+  <h1>🛒 Lista de Compras</h1>
+  <div class="sub">Sincronizada con Google Sheets · se ve igual en PC y celular</div>
+
+  <div class="bar">
+    <select id="listaSel"><option>Cargando…</option></select>
+    <input type="text" id="search" placeholder="Buscar ingrediente…">
+    <button class="ghost" id="refresh">↻ Actualizar</button>
+  </div>
+  <div class="bar">
+    <div class="stat">Comprado: <b id="cDone">0</b>/<b id="cTotal">0</b></div>
+    <div class="stat">Cantidad pendiente: <b id="cPend">0</b></div>
+    <button class="del" id="clearBtn">🗑 Borrar esta lista</button>
+  </div>
+
+  <div id="list"></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="foot">
+    Para cargar una lista nueva: pegá los datos en la hoja de Google (columnas Lista · Ingrediente · Cantidad · Proveedor) y tocá Actualizar.
+  </div>
+
+<script>
+// ====== CONFIGURÁ ESTO ======
+const API = 'https://script.google.com/macros/s/AKfycby-0QSeSQI-NkhdMr3zZBm2S3vOgopF3WH6GFRscrKcLwqLXOpic5cqV5ALQBga7PVY3Q/exec';
+// =============================
+
+let DATA=[];          // todos los items de todas las listas
+let listaActiva='';
+const $=s=>document.querySelector(s);
+const fmt=n=> (n!==''&&n!=null) ? Number(n).toLocaleString('es-CL') : '';
+
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+
+async function api(params){
+  const url = API + (API.includes('?')?'&':'?') + new URLSearchParams(params).toString();
+  const r = await fetch(url);
+  return await r.json();
+}
+
+async function load(){
+  $('#list').innerHTML='<div class="empty"><span class="spin"></span> Cargando datos…</div>';
+  try{
+    const res = await api({action:'read'});
+    if(!res.ok){ $('#list').innerHTML='<div class="empty">Error: '+res.error+'</div>'; return; }
+    DATA = res.items;
+    buildListaSelector();
+    render();
+  }catch(err){
+    $('#list').innerHTML='<div class="empty">No se pudo conectar. Revisá la URL del backend.<br><small>'+err+'</small></div>';
+  }
+}
+
+function buildListaSelector(){
+  const listas=[...new Set(DATA.map(d=>d.lista).filter(Boolean))].sort();
+  const sel=$('#listaSel');
+  if(!listas.length){ sel.innerHTML='<option>(sin listas)</option>'; listaActiva=''; return; }
+  if(!listas.includes(listaActiva)) listaActiva=listas[0];
+  sel.innerHTML=listas.map(l=>`<option ${l===listaActiva?'selected':''}>${l}</option>`).join('');
+}
+
+function render(){
+  const q=$('#search').value.toLowerCase();
+  const items=DATA.filter(d=>d.lista===listaActiva);
+  const provs={};
+  items.forEach(d=>{ (provs[d.proveedor]=provs[d.proveedor]||[]).push(d); });
+
+  let html='';
+  Object.keys(provs).sort().forEach(p=>{
+    const visibles=provs[p].filter(d=>d.ingrediente.toLowerCase().includes(q));
+    if(!visibles.length) return;
+    const tot=provs[p].reduce((s,d)=>s+(d.comprado?0:(Number(d.cantidad)||0)),0);
+    const pend=provs[p].filter(d=>!d.comprado).length;
+    html+=`<div class="prov">
+      <div class="prov-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
+        <h2>${p} <span class="badge">${pend} pend.</span></h2>
+        <span class="prov-total">Cantidad pendiente: <b>${fmt(tot)}</b></span>
+      </div>
+      <table>
+        <thead><tr><th style="width:40px"></th><th>Ingrediente</th><th class="num">Cantidad</th><th style="width:110px">Mover a</th></tr></thead>
+        <tbody>`;
+    visibles.forEach(d=>{
+      html+=`<tr class="${d.comprado?'done':''}">
+        <td><input type="checkbox" class="chk" ${d.comprado?'checked':''} onchange="toggle(${d.row},this.checked)"></td>
+        <td>${d.ingrediente}</td>
+        <td class="num">${fmt(d.cantidad)}</td>
+        <td><button class="reassign" onclick="move(${d.row})">Cambiar</button></td>
+      </tr>`;
+    });
+    html+='</tbody></table></div>';
+  });
+  $('#list').innerHTML=html||'<div class="empty">Sin productos en esta lista.</div>';
+
+  const done=items.filter(d=>d.comprado).length;
+  $('#cDone').textContent=done;
+  $('#cTotal').textContent=items.length;
+  $('#cPend').textContent=fmt(items.reduce((s,d)=>s+(d.comprado?0:(Number(d.cantidad)||0)),0));
+}
+
+async function toggle(row,checked){
+  const d=DATA.find(x=>x.row===row); if(d) d.comprado=checked;
+  render();
+  try{ await api({action:'toggle',row:row,value:checked}); }
+  catch(e){ toast('No se guardó, reintentá'); }
+}
+
+async function move(row){
+  const d=DATA.find(x=>x.row===row); if(!d) return;
+  const provs=[...new Set(DATA.filter(x=>x.lista===listaActiva).map(x=>x.proveedor))];
+  const nuevo=prompt(`Mover "${d.ingrediente}" a qué proveedor?\n\nExistentes: ${provs.join(', ')}`, d.proveedor);
+  if(!nuevo||!nuevo.trim()) return;
+  d.proveedor=nuevo.trim();
+  render();
+  try{ await api({action:'move',row:row,proveedor:d.proveedor}); toast('Proveedor actualizado'); }
+  catch(e){ toast('No se guardó, reintentá'); }
+}
+
+async function clearList(){
+  if(!listaActiva) return;
+  if(!confirm(`¿Borrar TODA la lista "${listaActiva}"?\nEsto elimina sus filas de la hoja. No se puede deshacer.`)) return;
+  toast('Borrando…');
+  try{
+    await api({action:'clear',lista:listaActiva});
+    await load();
+    toast('Lista borrada');
+  }catch(e){ toast('Error al borrar'); }
+}
+
+$('#listaSel').addEventListener('change',e=>{ listaActiva=e.target.value; render(); });
+$('#search').addEventListener('input',render);
+$('#refresh').addEventListener('click',load);
+$('#clearBtn').addEventListener('click',clearList);
+
+load();
+</script>
+</body>
+</html>
