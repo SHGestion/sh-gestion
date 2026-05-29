@@ -58,7 +58,7 @@
     <div class="bar">
       <input type="text" id="search" placeholder="Buscar ingrediente…">
       <div class="stat">Comprado: <b id="cDone">0</b>/<b id="cTotal">0</b></div>
-      <div class="stat">Total: <b id="cMonto">$0</b></div>
+      <div class="stat">Cantidad pendiente: <b id="cMonto">0</b></div>
       <button class="ghost" id="reset">Cargar otro</button>
     </div>
     <div id="list"></div>
@@ -70,7 +70,7 @@
 let DATA=[]; // {id, ingrediente, total, proveedor, done}
 const $=s=>document.querySelector(s);
 
-const fmt=n=> n? '$'+Number(n).toLocaleString('es-CL') : '';
+const fmt=n=> n? Number(n).toLocaleString('es-CL') : '';
 
 $('#file').addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f) return;
@@ -122,10 +122,10 @@ function render(){
     html+=`<div class="prov">
       <div class="prov-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
         <h2>${p} <span class="badge">${pend} pend.</span></h2>
-        <span class="prov-total">Falta comprar: <b>${fmt(tot)}</b></span>
+        <span class="prov-total">Cantidad pendiente: <b>${fmt(tot)}</b></span>
       </div>
       <table>
-        <thead><tr><th style="width:40px"></th><th>Ingrediente</th><th class="num">Total</th><th style="width:120px">Mover a</th></tr></thead>
+        <thead><tr><th style="width:40px"></th><th>Ingrediente</th><th class="num">Cantidad</th><th style="width:120px">Mover a</th></tr></thead>
         <tbody>`;
     items.forEach(d=>{
       html+=`<tr class="${d.done?'done':''}">
