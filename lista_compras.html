@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lista de Compras · SH</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a3340;
+    --txt:#e6edf3; --muted:#8b98a8; --accent:#3fb950; --accent2:#58a6ff;
+    --done:#6e7681; --warn:#d29922;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt);padding:24px;max-width:1100px;margin:0 auto}
+  h1{font-size:1.5rem;font-weight:700;letter-spacing:-.5px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:.9rem;margin-bottom:20px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:36px;text-align:center;cursor:pointer;transition:.2s;background:var(--panel)}
+  .drop:hover{border-color:var(--accent2);background:var(--panel2)}
+  .drop input{display:none}
+  .drop b{color:var(--accent2)}
+  .bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:18px 0}
+  .bar input[type=text]{flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:10px 14px;border-radius:10px;font-size:.95rem}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:.85rem;color:var(--muted)}
+  .stat b{color:var(--txt)}
+  .prov{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:16px;overflow:hidden}
+  .prov-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--panel2);cursor:pointer;user-select:none}
+  .prov-head h2{font-size:1.05rem;font-weight:600;display:flex;align-items:center;gap:10px}
+  .badge{background:var(--accent2);color:#04101f;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:20px}
+  .prov-total{color:var(--muted);font-size:.9rem}
+  .prov-total b{color:var(--accent)}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 14px;text-align:left;font-size:.9rem;border-top:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.done td{color:var(--done);text-decoration:line-through}
+  tr.done td .reassign{text-decoration:none}
+  .chk{width:20px;height:20px;cursor:pointer;accent-color:var(--accent)}
+  .reassign{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:4px 8px;border-radius:8px;font-size:.82rem;cursor:pointer}
+  .empty{color:var(--muted);text-align:center;padding:40px}
+  .hidden{display:none}
+  .foot{color:var(--muted);font-size:.8rem;text-align:center;margin-top:24px}
+  button.act{background:var(--accent);color:#04140a;border:none;padding:9px 16px;border-radius:10px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);padding:9px 14px;border-radius:10px;cursor:pointer}
+</style>
+</head>
+<body>
+  <h1>🛒 Lista de Compras</h1>
+  <div class="sub">Subí el Excel, marcá lo que ya tenés en el carro y reasigná productos a otro proveedor.</div>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept=".xlsx,.xls">
+    <div>Arrastrá tu Excel o <b>hacé clic para elegir</b></div>
+    <div style="color:var(--muted);font-size:.82rem;margin-top:6px">Formato: Ingrediente · días · Total general · Proveedor</div>
+  </label>
+
+  <div id="app" class="hidden">
+    <div class="bar">
+      <input type="text" id="search" placeholder="Buscar ingrediente…">
+      <div class="stat">Comprado: <b id="cDone">0</b>/<b id="cTotal">0</b></div>
+      <div class="stat">Total: <b id="cMonto">$0</b></div>
+      <button class="ghost" id="reset">Cargar otro</button>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div class="foot">Los cambios viven solo en esta sesión. Para guardar, exportá o volvé a subir el Excel.</div>
+
+<script>
+let DATA=[]; // {id, ingrediente, total, proveedor, done}
+const $=s=>document.querySelector(s);
+
+const fmt=n=> n? '$'+Number(n).toLocaleString('es-CL') : '';
+
+$('#file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    parse(rows);
+  };
+  r.readAsArrayBuffer(f);
+});
+
+function parse(rows){
+  const header=rows[0].map(h=>String(h).trim().toLowerCase());
+  const iIng=header.findIndex(h=>h.includes('ingred'));
+  const iProv=header.findIndex(h=>h.includes('proveedor'));
+  let iTot=header.findIndex(h=>h.includes('total'));
+  DATA=[];
+  let id=0;
+  for(let r=1;r<rows.length;r++){
+    const row=rows[r];
+    const ing=String(row[iIng]||'').trim();
+    if(!ing) continue;
+    DATA.push({
+      id:id++,
+      ingrediente:ing,
+      total: parseFloat(String(row[iTot]).toString().replace(/\./g,'').replace(',','.'))||0,
+      proveedor: String(row[iProv]||'Sin proveedor').trim()||'Sin proveedor',
+      done:false
+    });
+  }
+  $('#drop').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  render();
+}
+
+function render(){
+  const q=$('#search').value.toLowerCase();
+  const provs={};
+  DATA.forEach(d=>{ (provs[d.proveedor]=provs[d.proveedor]||[]).push(d); });
+
+  let html='';
+  Object.keys(provs).sort().forEach(p=>{
+    const items=provs[p].filter(d=>d.ingrediente.toLowerCase().includes(q));
+    if(!items.length) return;
+    const tot=provs[p].reduce((s,d)=>s+(d.done?0:d.total),0);
+    const pend=provs[p].filter(d=>!d.done).length;
+    html+=`<div class="prov">
+      <div class="prov-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
+        <h2>${p} <span class="badge">${pend} pend.</span></h2>
+        <span class="prov-total">Falta comprar: <b>${fmt(tot)}</b></span>
+      </div>
+      <table>
+        <thead><tr><th style="width:40px"></th><th>Ingrediente</th><th class="num">Total</th><th style="width:120px">Mover a</th></tr></thead>
+        <tbody>`;
+    items.forEach(d=>{
+      html+=`<tr class="${d.done?'done':''}">
+        <td><input type="checkbox" class="chk" ${d.done?'checked':''} onchange="toggle(${d.id})"></td>
+        <td>${d.ingrediente}</td>
+        <td class="num">${fmt(d.total)}</td>
+        <td><button class="reassign" onclick="reassign(${d.id})">Cambiar</button></td>
+      </tr>`;
+    });
+    html+='</tbody></table></div>';
+  });
+  $('#list').innerHTML=html||'<div class="empty">Sin resultados.</div>';
+
+  const done=DATA.filter(d=>d.done).length;
+  $('#cDone').textContent=done;
+  $('#cTotal').textContent=DATA.length;
+  $('#cMonto').textContent=fmt(DATA.reduce((s,d)=>s+(d.done?0:d.total),0));
+}
+
+function toggle(id){ const d=DATA.find(x=>x.id===id); d.done=!d.done; render(); }
+
+function reassign(id){
+  const d=DATA.find(x=>x.id===id);
+  const provs=[...new Set(DATA.map(x=>x.proveedor))];
+  const nuevo=prompt(`Mover "${d.ingrediente}" a qué proveedor?\n\nExistentes: ${provs.join(', ')}\n\n(escribí uno nuevo o uno existente)`, d.proveedor);
+  if(nuevo&&nuevo.trim()){ d.proveedor=nuevo.trim(); render(); }
+}
+
+$('#search').addEventListener('input',render);
+$('#reset').addEventListener('click',()=>{ location.reload(); });
+
+// drag & drop
+const drop=$('#drop');
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.style.borderColor='var(--accent2)';}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.style.borderColor='';}));
+drop.addEventListener('drop',ev=>{ $('#file').files=ev.dataTransfer.files; $('#file').dispatchEvent(new Event('change')); });
+</script>
+</body>
+</html>
