@@ -2273,6 +2273,7 @@ async function procesarXMLsMasivo(files) {
           punit: it.prcConIVA,
           conf,
           esKgDirecto: !!it.esKgDirecto,         // B: viene del parser (UM vacío + Q decimal)
+          umAmbigua: !!it.umAmbigua,             // XML no traía UnmdItem
           factorAprendido: factorAprendido || null, // C: factor aprendido de Mapeos_Facturas
           facturaFolio: factura.folio,
           facturaFecha: factura.fecha,
@@ -2662,9 +2663,11 @@ function parseXMLFactura(xmlText) {
     const esKgDirecto = umVacio && tieneDecimales;
 
     // Normalizar UM final
+    // CRITERIO: XML sin UM → asumir Kg (la mayoría de productos sin UM son a granel/peso).
+    // Si en realidad son unidades, el usuario puede cambiarlo y se guarda el aprendizaje.
     let um;
     if(esKgDirecto) um = 'Kg';
-    else if(!umRaw) um = 'Und';
+    else if(!umRaw) um = 'Kg';     // antes era 'Und'; cambio: default a Kg cuando no viene
     else um = umRaw;
 
     return {
@@ -2673,7 +2676,8 @@ function parseXMLFactura(xmlText) {
       prcConIVA: Math.round(prcNeto*factorIVA),
       monto,
       montoConIVA: Math.round(monto*factorIVA),
-      esKgDirecto
+      esKgDirecto,
+      umAmbigua: umVacio  // true cuando el XML no traía UnmdItem — el usuario debe confirmar
     };
   });
   return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
@@ -2748,7 +2752,7 @@ function renderTablaF() {
         <option value="Un"${(it.umEdit||it.um)==='Un'?' selected':''}>Un</option>
         <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
         <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
-      </select>${it.esKgDirecto?'<div style="font-size:10px;color:#5e35b1;margin-top:2px">🐄 Kg directo</div>':(it.factorAprendido?'<div style="font-size:10px;color:#1976d2;margin-top:2px">📌 '+it.factorAprendido+' kg/un</div>':'')}</td>
+      </select>${it.esKgDirecto?'<div style="font-size:10px;color:#5e35b1;margin-top:2px">🐄 Kg directo</div>':(it.factorAprendido?'<div style="font-size:10px;color:#1976d2;margin-top:2px">📌 '+it.factorAprendido+' kg/un</div>':(it.umAmbigua&&!it.factorAprendido?'<div style="font-size:10px;color:#e65100;margin-top:2px" title="El XML no traía unidad de medida. Verifica si son Un o Kg.">⚠ revisar UM</div>':''))}</td>
       <td style="text-align:right"><input type="number" value="${it.punit}" style="font-size:12px;width:75px;text-align:right" onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
       <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
