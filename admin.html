@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Tu Salad — Reportes</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #F0FDF4; color: #1F2937; padding: 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 14px; padding: 22px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 16px; }
+  h1 { color: #2D6A4F; margin-bottom: 4px; }
+  h2 { color: #2D6A4F; font-size: 1.2rem; margin-bottom: 12px; }
+  h3 { color: #1F2937; font-size: 1.05rem; margin-bottom: 10px; margin-top: 16px; }
+  .subtitle { color: #6B7280; font-size: 0.9rem; margin-bottom: 16px; }
+  .logo { font-weight: 800; color: #2D6A4F; font-size: 1.4rem; letter-spacing: -0.5px; }
+  .logo-tag { color: #95D5B2; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; color: #374151; }
+  input[type="text"], input[type="password"], input[type="date"] {
+    width: 100%; padding: 10px; border: 1px solid #D1D5DB; border-radius: 10px;
+    font-size: 1rem; margin-bottom: 12px;
+  }
+  button {
+    background: #2D6A4F; color: #fff; border: none; padding: 10px 18px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; margin-right: 8px;
+  }
+  button:hover { background: #1B4332; }
+  button.verde-claro { background: #40916C; }
+  button.verde-claro:hover { background: #2D6A4F; }
+  button.gris { background: #6B7280; }
+  button.gris:hover { background: #4B5563; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #E5E7EB; flex-wrap: wrap; }
+  .tab { padding: 10px 18px; cursor: pointer; border-bottom: 3px solid transparent; color: #6B7280; font-weight: 600; }
+  .tab.activo { color: #2D6A4F; border-bottom-color: #2D6A4F; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #DCFCE7; color: #14532D; padding: 12px; text-align: left; font-size: 0.85rem; font-weight: 700; }
+  td { padding: 10px; border-bottom: 1px solid #F3F4F6; font-size: 0.9rem; vertical-align: middle; }
+  tr:hover td { background: #FAFAFA; }
+
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-MENU { background: #FFEDD5; color: #9A3412; }
+  .badge-HIPO { background: #DCFCE7; color: #166534; }
+
+  .hidden { display: none; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: #F0FDF4; padding: 16px; border-radius: 10px; text-align: center; }
+  .stat-num { font-size: 1.9rem; font-weight: 700; color: #2D6A4F; display: block; }
+  .stat-label { font-size: 0.75rem; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat.naranja .stat-num { color: #9A3412; }
+  .stat.gris .stat-num { color: #6B7280; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: end; flex-wrap: wrap; }
+  .toolbar > div { flex: 1; min-width: 140px; }
+
+  .barra-progreso { width: 100%; height: 8px; background: #E5E7EB; border-radius: 4px; overflow: hidden; }
+  .barra-progreso-fill { height: 100%; background: #2D6A4F; }
+
+  .header-bar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 14px; border-bottom: 1px solid #E5E7EB; margin-bottom: 16px; }
+
+  .mensaje { padding: 12px; border-radius: 10px; margin-bottom: 12px; }
+  .info { background: #DBEAFE; color: #1E40AF; }
+
+  /* Tabla resumen semanal con bloques destacados */
+  .semana-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px; }
+  .dia-cuadro {
+    background: #F0FDF4; border-radius: 10px; padding: 14px; text-align: center;
+  }
+  .dia-cuadro .dia-titulo { font-size: 0.8rem; color: #6B7280; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+  .dia-cuadro .dia-fecha { font-size: 0.75rem; color: #9CA3AF; margin-bottom: 12px; }
+  .dia-cuadro .menu-stat { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; margin-bottom: 5px; font-size: 0.85rem; }
+  .dia-cuadro .menu-stat.menu { background: #FFEDD5; color: #9A3412; }
+  .dia-cuadro .menu-stat.hipo { background: #DCFCE7; color: #166534; }
+  .dia-cuadro .total { margin-top: 8px; padding-top: 8px; border-top: 1px solid #E5E7EB; font-weight: 700; color: #2D6A4F; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- LOGIN -->
+  <div id="login-admin" class="card">
+    <div class="logo">Tu Salad</div>
+    <div class="logo-tag">Panel Admin</div>
+    <h1 style="margin-top: 16px;">Reportes administrativos</h1>
+    <p class="subtitle">Ingresa con el token de administrador para acceder.</p>
+    <label>Token de administrador</label>
+    <input type="password" id="token" placeholder="Pega tu token">
+    <div id="msg-login"></div>
+    <button id="btn-entrar">Entrar</button>
+  </div>
+
+  <!-- APP -->
+  <div id="app-admin" class="hidden">
+    <div class="card">
+      <div class="header-bar">
+        <div>
+          <div class="logo">Tu Salad</div>
+          <h1 style="margin-top: 4px;">Reportes administrativos</h1>
+          <div class="subtitle">SH Gestión y Servicios SpA</div>
+        </div>
+        <button class="gris" id="btn-salir">Salir</button>
+      </div>
+      <div class="tabs">
+        <div class="tab activo" data-tab="semanal">Resumen Semanal</div>
+        <div class="tab" data-tab="participacion">Participación</div>
+      </div>
+
+      <!-- TAB RESUMEN SEMANAL -->
+      <div id="tab-semanal" class="tab-content">
+        <div class="toolbar">
+          <div>
+            <label>Lunes de la semana</label>
+            <input type="date" id="semana-input">
+          </div>
+          <button id="btn-semanal">Cargar reporte</button>
+          <button class="verde-claro" id="btn-export-semanal">Exportar CSV</button>
+        </div>
+        <div id="msg-semanal"></div>
+        <div id="semanal-stats"></div>
+        <div id="semanal-grid"></div>
+        <div id="semanal-detalle"></div>
+      </div>
+
+      <!-- TAB PARTICIPACIÓN -->
+      <div id="tab-participacion" class="tab-content hidden">
+        <div class="toolbar">
+          <div>
+            <label>Lunes de la semana</label>
+            <input type="date" id="semana-part">
+          </div>
+          <button id="btn-part">Cargar reporte</button>
+          <button class="verde-claro" id="btn-export-part">Exportar CSV</button>
+        </div>
+        <div id="part-stats"></div>
+        <div id="part-tabla"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbwcpxl2K8FQ75qtaXgwX0Lt7T1Vw_X2OIUVHShQ5e_Ch44iVkgHsj_aX-TRWyqyvzwZdA/exec';
+let TOKEN = '';
+
+const $ = (id) => document.getElementById(id);
+
+// =================== LOGIN ===================
+$('btn-entrar').addEventListener('click', () => {
+  const t = $('token').value.trim();
+  if (!t) return;
+  TOKEN = t;
+  sessionStorage.setItem('tusalad_admin_token', t);
+  $('login-admin').classList.add('hidden');
+  $('app-admin').classList.remove('hidden');
+  // Default: lunes de esta semana
+  const hoy = new Date();
+  const dia = hoy.getDay();
+  const diff = dia === 0 ? -6 : 1 - dia;
+  hoy.setDate(hoy.getDate() + diff);
+  const lunesStr = hoy.toISOString().substring(0, 10);
+  $('semana-input').value = lunesStr;
+  $('semana-part').value = lunesStr;
+});
+
+$('btn-salir').addEventListener('click', () => {
+  sessionStorage.removeItem('tusalad_admin_token');
+  TOKEN = '';
+  $('app-admin').classList.add('hidden');
+  $('login-admin').classList.remove('hidden');
+  $('token').value = '';
+});
+
+window.addEventListener('load', () => {
+  const t = sessionStorage.getItem('tusalad_admin_token');
+  if (t) { $('token').value = t; $('btn-entrar').click(); }
+});
+
+// =================== TABS ===================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('activo'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    tab.classList.add('activo');
+    $('tab-' + tab.dataset.tab).classList.remove('hidden');
+  });
+});
+
+// =================== RESUMEN SEMANAL ===================
+$('btn-semanal').addEventListener('click', async () => {
+  const semana = $('semana-input').value;
+  if (!semana) return alert('Selecciona el lunes de la semana');
+  const r = await apiCall({ accion: 'reporteSemanal', admin_token: TOKEN, semana });
+  if (!r.ok) { alert(r.error); return; }
+  renderSemanal(r);
+});
+
+function renderSemanal(r) {
+  const fechas = r.fechas;
+  const resumen = r.resumen;
+  let totalMenu = 0, totalHipo = 0, totalGen = 0;
+  fechas.forEach(f => {
+    totalMenu += resumen[f].MENU || 0;
+    totalHipo += resumen[f].HIPO || 0;
+    totalGen += resumen[f].total || 0;
+  });
+
+  $('semanal-stats').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat"><span class="stat-num">${totalGen}</span><span class="stat-label">Total pedidos semana</span></div>
+      <div class="stat naranja"><span class="stat-num">${totalMenu}</span><span class="stat-label">Menús principales</span></div>
+      <div class="stat"><span class="stat-num">${totalHipo}</span><span class="stat-label">Hipocalóricos</span></div>
+      <div class="stat gris"><span class="stat-num">${(totalGen/5).toFixed(1)}</span><span class="stat-label">Promedio diario</span></div>
+    </div>
+  `;
+
+  // Grid de 5 días
+  let gridHtml = '<h3>Detalle día por día</h3><div class="semana-grid">';
+  fechas.forEach(f => {
+    const d = resumen[f];
+    const [y,m,dd] = f.split('-');
+    gridHtml += `<div class="dia-cuadro">
+      <div class="dia-titulo">${d.diaSemana}</div>
+      <div class="dia-fecha">${dd}/${m}/${y}</div>
+      <div class="menu-stat menu"><span>Menú</span><strong>${d.MENU || 0}</strong></div>
+      <div class="menu-stat hipo"><span>Hipo</span><strong>${d.HIPO || 0}</strong></div>
+      <div class="total">Total: ${d.total}</div>
+    </div>`;
+  });
+  gridHtml += '</div>';
+  $('semanal-grid').innerHTML = gridHtml;
+
+  // Detalle por usuario por día
+  let detHtml = '<h3>Detalle por usuario</h3><table><thead><tr>';
+  detHtml += '<th>Día</th><th>Fecha</th><th>Nombre</th><th>Empresa</th><th>Opción</th><th>Descripción</th>';
+  detHtml += '</tr></thead><tbody>';
+  fechas.forEach(f => {
+    const d = resumen[f];
+    (d.detalle || []).forEach(x => {
+      const [y,m,dd] = f.split('-');
+      detHtml += `<tr>
+        <td><strong>${d.diaSemana}</strong></td>
+        <td>${dd}/${m}/${y}</td>
+        <td>${x.nombre}</td>
+        <td>${x.empresa || ''}</td>
+        <td><span class="badge badge-${x.opcion}">${x.opcion === 'MENU' ? 'Menú' : 'Hipo'}</span></td>
+        <td>${x.desc}</td>
+      </tr>`;
+    });
+  });
+  detHtml += '</tbody></table>';
+  if (totalGen === 0) detHtml = '<p style="color:#6B7280; text-align:center; padding:20px;">Sin selecciones registradas para esta semana.</p>';
+  $('semanal-detalle').innerHTML = detHtml;
+
+  window._semanalData = { fechas, resumen, semana: r.semana };
+}
+
+$('btn-export-semanal').addEventListener('click', () => {
+  if (!window._semanalData) return alert('Primero carga el reporte');
+  const { fechas, resumen, semana } = window._semanalData;
+  let csv = 'Fecha,Dia,Menu,Hipocalorico,Total\n';
+  fechas.forEach(f => {
+    const d = resumen[f];
+    csv += `${f},${d.diaSemana},${d.MENU || 0},${d.HIPO || 0},${d.total}\n`;
+  });
+  descargarCSV(csv, `tusalad_resumen_${semana}.csv`);
+});
+
+// =================== PARTICIPACIÓN ===================
+$('btn-part').addEventListener('click', async () => {
+  const semana = $('semana-part').value;
+  if (!semana) return alert('Selecciona el lunes de la semana');
+  const r = await apiCall({ accion: 'reporteParticipacion', admin_token: TOKEN, semana });
+  if (!r.ok) { alert(r.error); return; }
+  renderPart(r);
+});
+
+function renderPart(r) {
+  const d = r.detalle;
+  const total = d.length;
+  const completos = d.filter(x => x.elegidos === r.totalDias).length;
+  const sinElegir = d.filter(x => x.elegidos === 0).length;
+  const promedio = total > 0 ? Math.round(d.reduce((s,x)=>s+x.porcentaje,0)/total) : 0;
+
+  $('part-stats').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat"><span class="stat-num">${total}</span><span class="stat-label">Usuarios activos</span></div>
+      <div class="stat"><span class="stat-num">${completos}</span><span class="stat-label">Pidieron los 5 días</span></div>
+      <div class="stat naranja"><span class="stat-num">${sinElegir}</span><span class="stat-label">Sin pedir aún</span></div>
+      <div class="stat"><span class="stat-num">${promedio}%</span><span class="stat-label">Participación promedio</span></div>
+    </div>
+  `;
+
+  let html = `<table><thead><tr>
+    <th>Nombre</th><th>Empresa</th><th>Email</th><th>Teléfono</th>
+    <th>Pedidos</th><th style="width:200px;">Avance</th>
+  </tr></thead><tbody>`;
+  d.sort((a,b) => a.porcentaje - b.porcentaje);
+  d.forEach(x => {
+    html += `<tr>
+      <td><strong>${x.nombre}</strong></td>
+      <td>${x.empresa || ''}</td>
+      <td style="font-size:0.85rem;">${x.email || ''}</td>
+      <td style="font-size:0.85rem;">${x.telefono || ''}</td>
+      <td>${x.elegidos}/${r.totalDias}</td>
+      <td>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="barra-progreso" style="flex:1;"><div class="barra-progreso-fill" style="width:${x.porcentaje}%"></div></div>
+          <span style="font-size:0.8rem; min-width:36px;">${x.porcentaje}%</span>
+        </div>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  $('part-tabla').innerHTML = html;
+  window._partData = r;
+}
+
+$('btn-export-part').addEventListener('click', () => {
+  if (!window._partData) return alert('Primero carga el reporte');
+  let csv = 'Nombre,Empresa,Email,Telefono,Direccion,Pedidos,Faltantes,Porcentaje\n';
+  window._partData.detalle.forEach(x => {
+    csv += `"${x.nombre}","${x.empresa||''}","${x.email||''}","${x.telefono||''}","${x.direccion||''}",${x.elegidos},${x.faltantes},${x.porcentaje}\n`;
+  });
+  descargarCSV(csv, `tusalad_participacion_${window._partData.semana}.csv`);
+});
+
+// =================== UTILS ===================
+async function apiCall(payload) {
+  const r = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  });
+  return await r.json();
+}
+
+function descargarCSV(contenido, nombre) {
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + contenido], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre; a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
