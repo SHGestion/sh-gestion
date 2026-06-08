@@ -1742,11 +1742,11 @@ function usarAlternativa(i, nombre) {
   // Guardar valor real actual antes de cambiar
   const inp = document.getElementById(`cinput-${i}`);
   if(inp) ingredientesDia[i].real = inp.value;
+  // Cambiar el ingrediente al nombre de la alternativa
   ingredientesDia[i].ing = nombre;
-  // Actualizar solo la celda del ingrediente sin regenerar toda la tabla
-  const ingCelda = document.querySelector(`#crow-${i} td:nth-child(2) strong`);
-  if(ingCelda) ingCelda.textContent = nombre;
-  document.getElementById(`calt-${i}`).style.display = 'none';
+  // Re-renderizar todo: stock, diferencia, alternativas y alertas
+  // se recalculan contra el nuevo ingrediente
+  renderC();
 }
 
 function updC(i, k, v) {
