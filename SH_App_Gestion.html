@@ -947,6 +947,12 @@ let ingredientesDia = [];
 let filasExtra = [];
 let stockDia = {}; // stock actual por ingrediente (UPPERCASE), calculado al cargarDia
 let diaTieneRegistros = false; // true si el día ya fue registrado (bloquea edición)
+// Rastreo de reemplazos elegidos en el día actual:
+//   reemplazosFila[i] = 'NOMBRE_ORIGINAL'  → la fila i fue cambiada del original a otro
+//   comprometidoPorReemplazo[NOMBRE_REEMPLAZO] = kg totales asignados
+// Estos mapas se recalculan en cada renderC para reflejar el estado actual.
+let reemplazosFila = {};   // {idxFila: nombreOriginal}
+let comprometidoPorReemplazo = {}; // {NOMBRE_UPPER: kg_comprometidos}
 
 // ── UTILIDADES ───────────────────────────────────────────────────────────────
 function parseFecha(raw) {
@@ -1423,6 +1429,8 @@ async function cargarDia() {
   document.getElementById('ctbody').innerHTML = '';
   document.getElementById('cestado').style.display = 'none';
   filasExtra = [];
+  reemplazosFila = {};  // reset de reemplazos al cambiar de día
+  comprometidoPorReemplazo = {};
 
   // Cargar movimientos del día para detectar estado
   const movRows = await gsGet('Movimientos');
@@ -1575,6 +1583,25 @@ function renderC() {
   tb.innerHTML = '';
   const todo2 = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
 
+  // Recalcular lo comprometido por reemplazos:
+  // Cada fila que fue reemplazada (está en reemplazosFila) suma su consumo al ingrediente
+  // por el que se reemplazó. Este mapa se usa para descontar el stock mostrado en el
+  // dropdown de las siguientes filas.
+  comprometidoPorReemplazo = {};
+  todo2.forEach((row, idx) => {
+    if(!reemplazosFila[idx]) return; // solo filas efectivamente reemplazadas
+    const nuevoIng = (row.ing || '').toUpperCase().trim();
+    if(!nuevoIng) return;
+    const r = parseFloat(row.real);
+    let cant;
+    if(row.real !== '' && !isNaN(r) && r === 0) {
+      cant = 0; // reemplazo pero cero consumo → no compromete
+    } else {
+      cant = isNaN(r) ? (row.plan || 0) : Math.max(r, row.plan || 0);
+    }
+    comprometidoPorReemplazo[nuevoIng] = (comprometidoPorReemplazo[nuevoIng] || 0) + cant;
+  });
+
   // Calcular el consumo TOTAL agregado por ingrediente para el día completo
   // (la misma cebolla puede aparecer en varias preparaciones).
   // Si una fila tiene real=0 explícito, esa fila NO suma al agregado (el usuario
@@ -1696,7 +1723,12 @@ function renderC() {
       // Si esta fila tiene real = 0 explícito, no mostrar alternativas para esta fila
       const realRow = parseFloat(row.real);
       if(row.real !== '' && !isNaN(realRow) && realRow === 0) return;
-      if(stk !== undefined && ag && ag.total > 0 && stk < ag.total - 0.001) {
+      // Considerar el stock ajustado por lo ya comprometido en otros reemplazos
+      const compr = comprometidoPorReemplazo[ingKey] || 0;
+      const stkAj = (stk !== undefined ? stk : 0) - compr;
+      const stockInsuf = stk !== undefined && ag && ag.total > 0 && stkAj < ag.total - 0.001;
+      // Mostrar alternativas si el stock (ajustado) no alcanza O si la fila ya fue reemplazada
+      if(stockInsuf || reemplazosFila[i]) {
         mostrarAlternativasInline(i, row.ing, stockDia);
       }
     });
@@ -1719,33 +1751,100 @@ function mostrarAlternativasInline(i, ing, stockActual) {
   const altRow = document.getElementById(`calt-${i}`);
   const altInner = document.getElementById(`calt-inner-${i}`);
   if(!altRow || !altInner) return;
-  if(!alts.length) {
-    altRow.style.display = 'none';
-    return;
-  }
   altRow.style.display = '';
   const ingUp = ing.toUpperCase();
   const subgrupo = getSubgrupo(ingUp);
   const etiqueta = subgrupo ? subgrupo.nombre : (ING_A_FAMILIA[ingUp] || 'misma familia');
-  altInner.innerHTML = `<strong>Alternativas disponibles (${etiqueta}):</strong>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
-      ${alts.slice(0,6).map(a =>
-        `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
-          onclick="usarAlternativa(${i},'${a.nombre.replace(/'/g,"\\'")}')">
-          ${a.nombre} (${a.stock.toFixed(2)} kg)
-        </button>`
-      ).join('')}
-    </div>`;
+
+  // Aplicar descuentos por reemplazos ya comprometidos al mostrar el stock
+  const stockAjustado = (nombre) => {
+    const key = nombre.toUpperCase().trim();
+    const bruto = stockActual[key] !== undefined ? stockActual[key] : 0;
+    const comprometido = comprometidoPorReemplazo[key] || 0;
+    return bruto - comprometido;
+  };
+
+  // 1) Tags rápidos: alternativas de la misma familia, ajustadas por lo comprometido
+  const altsAjustadas = alts
+    .map(a => ({ ...a, stock: stockAjustado(a.nombre) }))
+    .filter(a => a.stock > 0.001)
+    .slice(0, 6);
+
+  // 2) Dropdown completo: TODO el inventario con stock > 0, descontando comprometidos
+  //    y excluyendo el ingrediente actual de la fila
+  const todosInv = Object.keys(stockActual)
+    .map(k => ({ nombre: k, stock: stockAjustado(k) }))
+    .filter(p => p.stock > 0.001 && p.nombre !== ingUp)
+    .sort((a,b) => a.nombre.localeCompare(b.nombre));
+
+  // Fue reemplazado? mostrar botón deshacer
+  const esReemplazo = !!reemplazosFila[i];
+  const btnDeshacer = esReemplazo
+    ? `<button class="btn" style="font-size:11px;padding:3px 8px;background:#e3f2fd;border-color:#1976d2;color:#1565c0;margin-left:8px" onclick="deshacerReemplazo(${i})">↺ Volver a ${reemplazosFila[i]}</button>`
+    : '';
+
+  const tagsHtml = altsAjustadas.length
+    ? `<div style="margin-top:4px"><span style="font-size:11px;color:#666">Sugerencias (${etiqueta}):</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:2px">
+          ${altsAjustadas.map(a =>
+            `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
+              onclick="usarAlternativa(${i},'${a.nombre.replace(/'/g,"\\'")}')">
+              ${a.nombre} (${a.stock.toFixed(2)} kg)
+            </button>`
+          ).join('')}
+        </div></div>`
+    : '';
+
+  // Datalist para buscador nativo del navegador (autocompletado)
+  const dlId = `dl-alt-${i}`;
+  const dropdownHtml = todosInv.length
+    ? `<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;color:#666">O elige del inventario completo:</span>
+        <input list="${dlId}" placeholder="Escribe para buscar..." id="alt-input-${i}"
+               style="font-size:12px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;min-width:220px"
+               onchange="seleccionarAltDesdeInput(${i}, this.value)">
+        <datalist id="${dlId}">
+          ${todosInv.map(p => `<option value="${p.nombre} (${p.stock.toFixed(2)} kg)">`).join('')}
+        </datalist>
+        <span style="font-size:10px;color:#999">${todosInv.length} productos disponibles</span>
+      </div>`
+    : '<div style="margin-top:6px;font-size:11px;color:#999">No hay más productos con stock disponible.</div>';
+
+  altInner.innerHTML = `<strong>Alternativas disponibles${esReemplazo?' — reemplazado':''}:</strong>${btnDeshacer}${tagsHtml}${dropdownHtml}`;
+}
+
+// Convertir "NOMBRE (X.XX kg)" del datalist al nombre puro y aplicar como alternativa
+function seleccionarAltDesdeInput(i, valor) {
+  if(!valor) return;
+  // El valor viene como "NOMBRE (X.XX kg)". Recortar el paréntesis.
+  const m = valor.match(/^(.+?)\s*\(\s*[\d.]+\s*kg\s*\)\s*$/i);
+  const nombre = m ? m[1].trim() : valor.trim();
+  if(!nombre) return;
+  usarAlternativa(i, nombre);
 }
 
 function usarAlternativa(i, nombre) {
   // Guardar valor real actual antes de cambiar
   const inp = document.getElementById(`cinput-${i}`);
   if(inp) ingredientesDia[i].real = inp.value;
+  // Rastrear el original si es la primera vez que se reemplaza
+  if(!reemplazosFila[i]) {
+    reemplazosFila[i] = ingredientesDia[i].ing;
+  }
   // Cambiar el ingrediente al nombre de la alternativa
   ingredientesDia[i].ing = nombre;
   // Re-renderizar todo: stock, diferencia, alternativas y alertas
-  // se recalculan contra el nuevo ingrediente
+  // se recalculan contra el nuevo ingrediente y contra lo ya comprometido
+  renderC();
+}
+
+// Deshacer un reemplazo: vuelve al ingrediente original de la fila
+function deshacerReemplazo(i) {
+  if(!reemplazosFila[i]) return;
+  const inp = document.getElementById(`cinput-${i}`);
+  if(inp) ingredientesDia[i].real = inp.value;
+  ingredientesDia[i].ing = reemplazosFila[i];
+  delete reemplazosFila[i];
   renderC();
 }
 
