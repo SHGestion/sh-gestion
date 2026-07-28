@@ -3069,17 +3069,20 @@ function renderTablaF() {
            onclick="confirmarItem(${i})">✓ OK</button>
          <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff3e0;border-color:#ffb300;margin-left:2px" title="Enviar a Gastos sin mapear a bodega" onclick="enviarItemAGastos(${i})">💡</button>`;
 
+    // Inputs bloqueados si el item ya fue registrado (no editables)
+    const disabledAttr = it._yaRegistrado ? ' disabled style="font-size:12px;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px"';
+    const disabledStyleUm = it._yaRegistrado ? ';background:#f0f0f0;color:#555;cursor:not-allowed' : '';
     tb.innerHTML += `<tr class="${cls}">
       <td><strong style="font-size:12px">${it.desc}</strong></td>
       <td>${selectHtml}</td>
-      <td><input type="number" value="${it.cantEdit||it.cant}" style="font-size:12px;width:65px"
+      <td><input type="number" value="${it.cantEdit||it.cant}"${it._yaRegistrado ? ' disabled style="font-size:12px;width:65px;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px;width:65px"'}
           onchange="editF(${i},'cant',this.value)" step="0.001"></td>
-      <td><select style="font-size:11px;width:65px" onchange="editF(${i},'um',this.value)">
+      <td><select${it._yaRegistrado?' disabled':''} style="font-size:11px;width:65px${disabledStyleUm}" onchange="editF(${i},'um',this.value)">
         <option value="Un"${(it.umEdit||it.um)==='Un'?' selected':''}>Un</option>
         <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
         <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
       </select>${it.esKgDirecto?'<div style="font-size:10px;color:#5e35b1;margin-top:2px">🐄 Kg directo</div>':(it.factorAprendido?'<div style="font-size:10px;color:#1976d2;margin-top:2px">📌 '+it.factorAprendido+' kg/un</div>':(it.umAmbigua&&!it.factorAprendido?'<div style="font-size:10px;color:#e65100;margin-top:2px" title="El XML no traía unidad de medida. Verifica si son Un o Kg.">⚠ revisar UM</div>':''))}</td>
-      <td style="text-align:right"><input type="number" value="${it.punit}" style="font-size:12px;width:75px;text-align:right" onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
+      <td style="text-align:right"><input type="number" value="${it.punit}"${it._yaRegistrado ? ' disabled style="font-size:12px;width:75px;text-align:right;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px;width:75px;text-align:right"'} onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
       <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">${pSist?'$'+pSist.toLocaleString('es-CL')+'/kg':'—'}</td>
@@ -3268,6 +3271,15 @@ async function registrarFactura() {
   const u = getUsuario();
   if(!u){alert('Selecciona un usuario.');return;}
 
+  // Deshabilitar botón INMEDIATAMENTE para evitar doble-click
+  // (antes se hacía después del confirm de duplicados, permitiendo ambos click en pasar)
+  const btnInicial = document.getElementById('btnreg');
+  if(btnInicial) {
+    if(btnInicial.disabled) return;  // ya está deshabilitado = ya está procesando
+    btnInicial.disabled = true;
+    btnInicial.textContent = 'Verificando...';
+  }
+
   // ── VALIDACIÓN DE DUPLICADO (imagen/PDF) ──────────────────────────────
   const fechaCheck = document.getElementById('ffecha').value;
   const provCheck = document.getElementById('fprov').value;
@@ -3284,6 +3296,11 @@ async function registrarFactura() {
         });
         if(fechaPrevia) {
           if(!confirm(`⚠ ATENCIÓN: La factura folio ${nfactCheck} de ${provCheck} ya fue registrada el ${fechaPrevia}.\n\nSi continúas, se DUPLICARÁN los movimientos en bodega.\n\n¿Registrar de todos modos?`)) {
+            // Usuario canceló → rehabilitar botón
+            if(btnInicial) {
+              btnInicial.disabled = false;
+              btnInicial.textContent = 'Registrar entrada →';
+            }
             return;
           }
         }
@@ -3293,7 +3310,6 @@ async function registrarFactura() {
   // ──────────────────────────────────────────────────────────────────────
 
   const btn = document.getElementById('btnreg');
-  btn.disabled = true;
   btn.textContent = 'Registrando...';
   try {
     const fecha = document.getElementById('ffecha').value;
