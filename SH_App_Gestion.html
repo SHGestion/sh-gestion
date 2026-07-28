@@ -1659,19 +1659,21 @@ function renderC() {
       // Ingrediente sin registros en Movimientos: hacerlo VISUALMENTE muy evidente
       stockHtml = `<span style="color:#c62828;font-weight:700;font-size:12px;background:#ffebee;padding:2px 6px;border-radius:4px;border:1px solid #ef9a9a" title="Este ingrediente no tiene registros de stock. Verifica si es un producto nuevo o si necesita reemplazo.">🚫 Sin registro</span>`;
     } else {
-      const insuficiente = stockKg < agregado.total - 0.001;
-      const cero = stockKg <= 0.001;
+      // Normalizar ruido de punto flotante: valores en el rango [-0.001, 0.001] se muestran como 0
+      const stockMostrar = Math.abs(stockKg) < 0.001 ? 0 : stockKg;
+      const insuficiente = stockMostrar < agregado.total - 0.001;
+      const cero = stockMostrar <= 0.001;
       const colorStk = cero ? '#c62828' : insuficiente ? '#e65100' : '#2e7d32';
       const peso = (cero || insuficiente) ? '700' : '400';
       const icono = cero ? '⛔' : insuficiente ? '⚠' : '';
-      let tooltip = `Stock: ${stockKg.toFixed(3)} kg`;
+      let tooltip = `Stock: ${stockMostrar.toFixed(3)} kg`;
       if(otrasFilas > 0) {
         tooltip += ` · Consumo total día: ${agregado.total.toFixed(3)} kg (${agregado.cantFilas} preparaciones)`;
       }
       const sufijo = otrasFilas > 0
         ? `<span style="font-size:10px;color:#777;display:block;margin-top:1px" title="${tooltip}">×${agregado.cantFilas} total ${agregado.total.toFixed(2)}</span>`
         : '';
-      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockKg.toFixed(3)}</span>${sufijo}`;
+      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockMostrar.toFixed(3)}</span>${sufijo}`;
     }
 
     let inputReal;
