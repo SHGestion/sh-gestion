@@ -3059,10 +3059,15 @@ function renderTablaF() {
     // Botón de confirmar línea
     const btnConfirmar = it._yaRegistrado
       ? `<span style="color:#1565c0;font-size:14px" title="Ya registrado en Movimientos">🔒</span>`
+      : it._destinoGasto
+      ? `<span style="color:#f57c00;font-size:12px;font-weight:600" title="Se registrará en Gastos, no en bodega">💡 A Gastos</span>
+         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff;margin-left:4px" onclick="volverBodegaItem(${i})">↺</button>`
       : it.conf===1
-      ? `<span style="color:#2e7d32;font-size:16px">✓</span>`
+      ? `<span style="color:#2e7d32;font-size:16px">✓</span>
+         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff3e0;border-color:#ffb300;margin-left:4px" title="Enviar este ítem a Gastos en vez de bodega" onclick="enviarItemAGastos(${i})">💡 Gasto</button>`
       : `<button class="btn" style="padding:3px 8px;font-size:11px;background:#f5f5f7"
-           onclick="confirmarItem(${i})">✓ OK</button>`;
+           onclick="confirmarItem(${i})">✓ OK</button>
+         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff3e0;border-color:#ffb300;margin-left:2px" title="Enviar a Gastos sin mapear a bodega" onclick="enviarItemAGastos(${i})">💡</button>`;
 
     tb.innerHTML += `<tr class="${cls}">
       <td><strong style="font-size:12px">${it.desc}</strong></td>
@@ -3091,6 +3096,35 @@ function renderTablaF() {
     <div class="metric"><div class="metric-val" style="color:#c62828">${er}</div><div class="metric-lbl">Sin mapeo</div></div>`;
 
   window._alertasPrecios = alertas;
+}
+
+// Marca un ítem individual para enviar a Gastos_GS en vez de Movimientos.
+// Útil para casos como TOALLITAS que llegan en una factura de bodega pero son insumo de aseo.
+function enviarItemAGastos(i) {
+  if(!itemsF[i]) return;
+  const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
+  const familiaDefault = 'Aseo';  // por defecto Aseo, es el caso más frecuente para items sueltos
+  const familia = prompt(
+    `Enviar "${itemsF[i].desc}" a Gastos.\n\nFamilia (${familias.join(' / ')}):`,
+    familiaDefault
+  );
+  if(!familia) return;
+  if(!familias.includes(familia)) {
+    if(!confirm(`"${familia}" no es una familia estándar. ¿Usarla igual?`)) return;
+  }
+  itemsF[i]._destinoGasto = true;
+  itemsF[i]._familiaGasto = familia;
+  itemsF[i].conf = 1; // marcarlo como "resuelto" para que no bloquee el registro
+  renderTablaF();
+}
+
+function volverBodegaItem(i) {
+  if(!itemsF[i]) return;
+  delete itemsF[i]._destinoGasto;
+  delete itemsF[i]._familiaGasto;
+  // Recalcular conf: si tenía mapeo, era 1; si no, era 0
+  itemsF[i].conf = itemsF[i].mapeo ? 1 : 0;
+  renderTablaF();
 }
 
 function confirmarItem(i) {
@@ -3268,38 +3302,57 @@ async function registrarFactura() {
     const obs = document.getElementById('fobs').value;
     // Filtrar items ya registrados (en el flujo XML masivo se marcan con _yaRegistrado
     // durante la primera pasada; aquí solo procesamos los que faltan)
-    const itemsPorRegistrar = itemsF.filter(it => !it._yaRegistrado);
-    if(itemsPorRegistrar.length === 0) {
+    // Separar items:
+    //   itemsBodega  → a Movimientos (con mapeo confirmado)
+    //   itemsGasto   → a Gastos_GS (marcados con _destinoGasto por el usuario)
+    //   itemsYaRegistrados → ya procesados en 1ra pasada XML, saltar
+    const itemsPendientes = itemsF.filter(it => !it._yaRegistrado);
+    const itemsBodega = itemsPendientes.filter(it => !it._destinoGasto);
+    const itemsGasto = itemsPendientes.filter(it => it._destinoGasto);
+
+    if(itemsBodega.length === 0 && itemsGasto.length === 0) {
       btn.disabled = false;
       btn.textContent = 'Registrar entrada →';
-      alert('No hay ítems pendientes por registrar. Todos ya están en Movimientos.');
+      alert('No hay ítems pendientes por registrar.');
       return;
     }
+
     let registrados = 0;
-    for(const it of itemsPorRegistrar){
+    const totOps = itemsBodega.length + itemsGasto.length;
+
+    // 1) Bodega → Movimientos
+    for(const it of itemsBodega){
       const factor = getKgFactorItem(it);
       const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
       const pxkg = it.punit / factor;
-      btn.textContent = `Registrando ${++registrados}/${itemsPorRegistrar.length}...`;
+      btn.textContent = `Registrando ${++registrados}/${totOps}...`;
       const r = await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
       if(!r || !r.ok) throw new Error(`Error registrando ${it.desc}: ${r?.error||'sin respuesta'}`);
-      // Marcar como registrado para no volver a procesarlo si se re-ejecuta
       it._yaRegistrado = true;
       it._kgRegistrado = kg;
     }
-    const tot = itemsPorRegistrar.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    // No re-registrar en Facturas_Log si la factura ya se registró antes (los items ya-registrados
-    // significan que la factura completa se cargó en la 1ra pasada del flujo XML masivo).
-    // Solo agregamos al log si esta es la primera vez que se registra algo de esta factura.
-    const habiaYaRegistrados = itemsF.some(it => it._kgRegistrado && it !== itemsPorRegistrar[0]);
+
+    // 2) Gastos → Gastos_GS (una fila por ítem, con familia)
+    for(const it of itemsGasto){
+      const monto = Math.round(it.punit * (it.cantEdit||it.cant) * (tipoF==='xml' ? 1 : 1.19));
+      btn.textContent = `Registrando ${++registrados}/${totOps}...`;
+      const desc = `${prov} — ${it.desc}`;
+      const r = await gsPost('Gastos_GS',[fecha, desc, it._familiaGasto||'Otros gastos', 'Factura', nfact, monto, u]);
+      if(!r || !r.ok) throw new Error(`Error registrando gasto ${it.desc}: ${r?.error||'sin respuesta'}`);
+      it._yaRegistrado = true;
+    }
+
+    // Total de la factura (bodega + gastos) — para Facturas_Log
+    const tot = itemsPendientes.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+    const habiaYaRegistrados = itemsF.some(it => it._kgRegistrado && it !== itemsPendientes[0]);
     if(!habiaYaRegistrados) {
-      await gsPost('Facturas_Log',[fecha,prov,nfact,itemsPorRegistrar.length,Math.round(tot * (tipoF==='xml' ? 1 : 1.19)),u,obs]);
+      await gsPost('Facturas_Log',[fecha,prov,nfact,itemsPendientes.length,Math.round(tot * (tipoF==='xml' ? 1 : 1.19)),u,obs]);
     }
 
     // ── Actualizar Maestro_Precios en memoria (sin reescribir Sheets) ──────
-    // Solo actualizar precios de los que se registraron AHORA (no los previamente registrados).
+    // Solo actualizar precios de los que se registraron AHORA a bodega (los de gastos no van al Maestro).
     try {
-      itemsPorRegistrar.forEach(it => {
+      itemsBodega.forEach(it => {
         const factor = getKgFactorItem(it);
         const pxkg = it.punit / factor;
         const nombre = (it.mapeo||it.desc).trim().toUpperCase();
@@ -3319,12 +3372,17 @@ async function registrarFactura() {
       newOpt.value = prov;
       document.getElementById('fprov-list').appendChild(newOpt);
     }
-    const nItems = itemsPorRegistrar.length;
+    const nBodega = itemsBodega.length;
+    const nGasto = itemsGasto.length;
+    const nItems = nBodega + nGasto;
     const fok = document.getElementById('fok');
     fok.style.display='block';
     fok.style.background='#e8f5e9';
     fok.style.color='#1b5e20';
-    fok.innerHTML=`✓ ${nItems} ítems registrados correctamente.<br><span style="font-size:12px;opacity:0.8">${tipoF==='xml' && xmlPendienteMapeo.length > nItems ? 'Pasando a la siguiente factura...' : 'Volviendo al inicio en 3 segundos...'}</span>`;
+    const detalles = [];
+    if(nBodega > 0) detalles.push(`${nBodega} a bodega`);
+    if(nGasto > 0) detalles.push(`${nGasto} a Gastos`);
+    fok.innerHTML=`✓ ${nItems} ítem(s) registrado(s) — ${detalles.join(' + ')}.<br><span style="font-size:12px;opacity:0.8">${tipoF==='xml' && xmlPendienteMapeo.length > nItems ? 'Pasando a la siguiente factura...' : 'Volviendo al inicio en 3 segundos...'}</span>`;
     btn.textContent = '✓ Registrado';
 
     // Si veníamos de un lote XML: remover esta factura del estado y avanzar
