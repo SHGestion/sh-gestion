@@ -2313,6 +2313,25 @@ async function procesarXMLsMasivo(files) {
 
     try {
       const text = await file.text();
+      // Detectar si es un XML masivo con múltiples DTE (típico de la descarga del SII)
+      const dtes = separarDTEsMasivos(text);
+      if(dtes.length > 1) {
+        document.getElementById('xml-progreso').textContent = `${i}/${xmlQueue.length}: ${file.name} (${dtes.length} DTEs)`;
+      }
+      for(const dteXml of dtes) {
+        await procesarUnDTE(dteXml, file.name);
+      }
+    } catch(err) {
+      console.warn('Error procesando '+file.name+':', err);
+    }
+  }
+  // Continuar con el resto del flujo original después del bucle
+  await finalizarProcesamientoXML();
+}
+
+// Procesa UN DTE (XML individual) — extraído del bucle original para poder reutilizar
+async function procesarUnDTE(text, nombreArchivo) {
+  try {
       const factura = parseXMLFactura(text);
       const itemsConMapeo = [];
       const sinMapeo = [];
@@ -2368,21 +2387,33 @@ async function procesarXMLsMasivo(files) {
         itemsConMapeo.push(item);
       });
 
+      // Clasificar la factura (bodega vs gasto vs otros)
+      const clasif = clasificarFactura({
+        proveedor: factura.proveedor,
+        items: factura.items,
+        tipoDoc: factura.tipoDoc
+      });
+
       xmlResultados.push({
         folio: factura.folio,
         fecha: factura.fecha,
         proveedor: factura.proveedor,
+        tipoDoc: factura.tipoDoc,
         mntTotal: factura.mntTotal,
         factorIVA: factura.factorIVA,
         items: itemsConMapeo,
-        archivo: file.name
+        archivo: nombreArchivo,
+        destino: clasif.destino,       // 'bodega' | 'gasto' | 'otros'
+        familia: clasif.familia || '',  // solo si es gasto
+        motivoClasif: clasif.motivo
       });
       xmlPendienteMapeo.push(...sinMapeo);
     } catch(e) {
-      console.error('Error procesando', file.name, e);
+      console.error('Error procesando DTE:', e);
     }
-  }
+}
 
+async function finalizarProcesamientoXML() {
   // Mostrar resumen
   const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
   const autoItems = totalItems - xmlPendienteMapeo.length;
@@ -2405,26 +2436,67 @@ async function procesarXMLsMasivo(files) {
   });
   const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
 
+  // Contadores por destino (bodega/gasto/otros)
+  const cntBodega = xmlResultados.filter(f => f.destino === 'bodega').length;
+  const cntGasto  = xmlResultados.filter(f => f.destino === 'gasto').length;
+  const cntOtros  = xmlResultados.filter(f => f.destino === 'otros').length;
+
   document.getElementById('dzp').innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
-      ✓ ${xmlResultados.length} factura(s) procesadas
+      ✓ ${xmlResultados.length} documento(s) procesado(s)
     </div>
     ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Revisa antes de registrar para no duplicar.
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo).
     </div>` : ''}
+    <div style="font-size:12px;background:#e8f5e9;border:1px solid #a5d6a7;padding:8px 10px;border-radius:8px;margin-bottom:10px">
+      <strong>Clasificación automática:</strong>
+      🥩 Bodega: <strong>${cntBodega}</strong> ·
+      💡 Gastos: <strong>${cntGasto}</strong> ·
+      ⛔ Ignorar: <strong>${cntOtros}</strong>
+      <div style="font-size:11px;color:#666;margin-top:4px">Puedes cambiar el destino de cada documento antes de registrar.</div>
+    </div>
     <div style="font-size:13px;color:#555;margin-bottom:4px">
       • ${autoItems} ítems con mapeo automático
     </div>
     <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
       • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
     </div>
-    ${xmlResultados.map((f,fi)=>`
-      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
-        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
-        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
-        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
-          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
-      </div>`).join('')}`;
+    ${xmlResultados.map((f,fi)=>{
+      const bgColor = f._yaRegistrada ? '#fff3cd'
+        : f.destino === 'gasto' ? '#e3f2fd'
+        : f.destino === 'otros' ? '#f5f5f5'
+        : '#f5f5f7';
+      const border = f._yaRegistrada ? ';border:1px solid #f59e0b'
+        : f.destino === 'gasto' ? ';border:1px solid #90caf9'
+        : f.destino === 'otros' ? ';border:1px solid #ccc;opacity:0.7'
+        : '';
+      const iconoDest = f.destino === 'gasto' ? '💡' : f.destino === 'otros' ? '⛔' : '🥩';
+      const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
+      return `
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${bgColor};padding:8px 10px;border-radius:6px;margin-bottom:6px${border}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div>
+            <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+            <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center">
+            ${iconoDest}
+            <select style="font-size:11px;padding:2px 4px" onchange="cambiarDestinoFactura(${fi}, this.value)">
+              <option value="bodega"${f.destino==='bodega'?' selected':''}>🥩 Bodega</option>
+              <option value="gasto"${f.destino==='gasto'?' selected':''}>💡 Gasto</option>
+              <option value="otros"${f.destino==='otros'?' selected':''}>⛔ Ignorar</option>
+            </select>
+            ${f.destino === 'gasto' ? `<select style="font-size:11px;padding:2px 4px" onchange="cambiarFamiliaGasto(${fi}, this.value)">
+              ${familias.map(fam => `<option value="${fam}"${f.familia===fam?' selected':''}>${fam}</option>`).join('')}
+            </select>` : ''}
+          </div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:4px">
+          ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+            <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:`<em>${f.motivoClasif||''}</em>`}
+        </div>
+      </div>`;
+    }).join('')}`;
 
   document.getElementById('dz').classList.add('loaded');
   document.getElementById('proc').style.display = 'none';
@@ -2477,6 +2549,21 @@ function revisarMapeoXML() {
   fGo(2);
 }
 
+function cambiarDestinoFactura(idx, nuevoDestino) {
+  if(!xmlResultados[idx]) return;
+  xmlResultados[idx].destino = nuevoDestino;
+  // Si pasa a "gasto" y no tiene familia asignada, poner "Otros gastos"
+  if(nuevoDestino === 'gasto' && !xmlResultados[idx].familia) {
+    xmlResultados[idx].familia = 'Otros gastos';
+  }
+  rerenderResumenXML();
+}
+
+function cambiarFamiliaGasto(idx, familia) {
+  if(!xmlResultados[idx]) return;
+  xmlResultados[idx].familia = familia;
+}
+
 function descartarFacturaXML(idx) {
   const f = xmlResultados[idx];
   if(!f) return;
@@ -2499,43 +2586,81 @@ function rerenderResumenXML() {
   const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
   const autoItems = totalItems - xmlPendienteMapeo.length;
   const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
+  const cntBodega = xmlResultados.filter(f => f.destino === 'bodega').length;
+  const cntGasto  = xmlResultados.filter(f => f.destino === 'gasto').length;
+  const cntOtros  = xmlResultados.filter(f => f.destino === 'otros').length;
 
   document.getElementById('dzp').innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
-      ✓ ${xmlResultados.length} factura(s) procesadas
+      ✓ ${xmlResultados.length} documento(s) procesado(s)
     </div>
     ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Descártalas o registra con cuidado.
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes.
     </div>` : ''}
+    <div style="font-size:12px;background:#e8f5e9;border:1px solid #a5d6a7;padding:8px 10px;border-radius:8px;margin-bottom:10px">
+      <strong>Clasificación:</strong>
+      🥩 Bodega: <strong>${cntBodega}</strong> ·
+      💡 Gastos: <strong>${cntGasto}</strong> ·
+      ⛔ Ignorar: <strong>${cntOtros}</strong>
+    </div>
     <div style="font-size:13px;color:#555;margin-bottom:4px">
       • ${autoItems} ítems con mapeo automático
     </div>
     <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
       • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
     </div>
-    ${xmlResultados.map((f,fi)=>`
-      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
-        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
-        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
-        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
-          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
-      </div>`).join('')}`;
+    ${xmlResultados.map((f,fi)=>{
+      const bgColor = f._yaRegistrada ? '#fff3cd'
+        : f.destino === 'gasto' ? '#e3f2fd'
+        : f.destino === 'otros' ? '#f5f5f5'
+        : '#f5f5f7';
+      const border = f._yaRegistrada ? ';border:1px solid #f59e0b'
+        : f.destino === 'gasto' ? ';border:1px solid #90caf9'
+        : f.destino === 'otros' ? ';border:1px solid #ccc;opacity:0.7'
+        : '';
+      const iconoDest = f.destino === 'gasto' ? '💡' : f.destino === 'otros' ? '⛔' : '🥩';
+      const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
+      return `
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${bgColor};padding:8px 10px;border-radius:6px;margin-bottom:6px${border}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div>
+            <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+            <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center">
+            ${iconoDest}
+            <select style="font-size:11px;padding:2px 4px" onchange="cambiarDestinoFactura(${fi}, this.value)">
+              <option value="bodega"${f.destino==='bodega'?' selected':''}>🥩 Bodega</option>
+              <option value="gasto"${f.destino==='gasto'?' selected':''}>💡 Gasto</option>
+              <option value="otros"${f.destino==='otros'?' selected':''}>⛔ Ignorar</option>
+            </select>
+            ${f.destino === 'gasto' ? `<select style="font-size:11px;padding:2px 4px" onchange="cambiarFamiliaGasto(${fi}, this.value)">
+              ${familias.map(fam => `<option value="${fam}"${f.familia===fam?' selected':''}>${fam}</option>`).join('')}
+            </select>` : ''}
+          </div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:4px">
+          ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+            <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:`<em>${f.motivoClasif||''}</em>`}
+        </div>
+      </div>`;
+    }).join('')}`;
 
   // Re-crear botones de acción
   const actDiv = document.createElement('div');
   actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
-  if(xmlPendienteMapeo.length > 0) {
+  if(xmlPendienteMapeo.length > 0 && cntBodega > 0) {
     actDiv.innerHTML = `
       <button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">
         🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo
       </button>
       <button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">
-        Registrar lo mapeado + revisar nuevos →
+        Registrar todo →
       </button>`;
   } else {
     actDiv.innerHTML = `
       <button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">
-        ✓ Registrar todas las facturas →
+        ✓ Registrar todos los documentos →
       </button>`;
   }
   document.getElementById('dzp').appendChild(actDiv);
@@ -2613,10 +2738,33 @@ async function registrarTodosXML() {
     const b = document.getElementById('xml-reg-bar'); if(b && pct!=null) b.style.width = pct+'%';
   };
 
-  // Construir TODAS las filas de Movimientos y de Facturas_Log primero
+  // Construir TODAS las filas de Movimientos, Facturas_Log y Gastos_GS según el destino de cada factura
   const filasMov = [];
   const filasLog = [];
+  const filasGasto = [];  // filas para Gastos_GS
   xmlResultados.forEach(fact => {
+    // Destino "otros" (ignorar) → no procesar en absoluto
+    if(fact.destino === 'otros') return;
+    // Destino "gasto" → agregar UNA fila a Gastos_GS y no tocar bodega
+    if(fact.destino === 'gasto') {
+      const desc = fact.proveedor + ' — ' + fact.items.map(i=>i.desc).join(', ').substring(0,80);
+      filasGasto.push([
+        fact.fecha,
+        desc,
+        fact.familia || 'Otros gastos',
+        fact.tipoDoc === '52' ? 'Guía Despacho' : 'Factura',
+        fact.folio,
+        Math.round(fact.mntTotal),
+        u
+      ]);
+      // También registrar en Facturas_Log para el chequeo de duplicados
+      filasLog.push([
+        fact.fecha, fact.proveedor, fact.folio, fact.items.length,
+        Math.round(fact.mntTotal), u, 'GASTO: ' + (fact.familia||'Otros gastos')
+      ]);
+      return;
+    }
+    // Destino "bodega" → procesar como antes
     const itemsAuto = fact.items.filter(it => it.conf > 0);
     if(!itemsAuto.length) return;
     let totFactura = 0;
@@ -2672,6 +2820,14 @@ async function registrarTodosXML() {
         body: JSON.stringify({accion:'batch', hoja:'Facturas_Log', filas: filasLog})
       }, 30000);
     }
+    if(filasGasto.length > 0) {
+      setMsg('Registrando gastos...', 95);
+      await fetchTimeout(API, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({accion:'batch', hoja:'Gastos_GS', filas: filasGasto})
+      }, 30000);
+    }
     setMsg('Listo', 100);
   } catch(e) {
     const statusEl = document.getElementById('xml-reg-status');
@@ -2686,9 +2842,10 @@ async function registrarTodosXML() {
 
   const statusEl = document.getElementById('xml-reg-status');
   if(statusEl) {
+    const gastosMsg = filasGasto.length > 0 ? '<br>💡 '+filasGasto.length+' gasto(s) registrado(s).' : '';
     statusEl.style.background = totalErrores === 0 ? '#e8f5e9' : '#fff3e0';
     statusEl.innerHTML = `<div style="color:${totalErrores===0?'#2e7d32':'#e65100'};font-weight:600">
-      ✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).
+      ✓ ${totalRegistrados} ítems de bodega registrados.${gastosMsg}
       ${totalErrores>0 ? '<br>⚠ '+totalErrores+' con error.' : ''}
       ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Pasando a revisar '+xmlPendienteMapeo.length+' ítems sin mapeo...' : ''}
     </div>`;
@@ -2716,6 +2873,71 @@ async function registrarTodosXML() {
 }
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
+
+// Detectar si el XML es un archivo masivo (múltiples DTE) o individual.
+// Devuelve un ARRAY de strings XML, cada uno con un DTE parseable individualmente.
+// Los del SII vienen como <SetDTE> o <EnvioDTE> con muchos <DTE> adentro.
+function separarDTEsMasivos(xmlText) {
+  // Buscar bloques <DTE...>...</DTE> - cada uno representa una factura/DTE distinto
+  const matches = xmlText.match(/<DTE\b[^>]*>[\s\S]*?<\/DTE>/g);
+  if(matches && matches.length > 1) {
+    // Es un XML masivo con múltiples DTE
+    return matches;
+  }
+  // Individual: devolver el XML tal cual como único elemento
+  return [xmlText];
+}
+
+// Clasificador de facturas por categoría (bodega vs gasto vs otros)
+// Devuelve: { destino: 'bodega'|'gasto'|'otros', familia?: string, motivo: string }
+function clasificarFactura(factura) {
+  const prov = (factura.proveedor||'').toUpperCase();
+  const items = (factura.items||[]).map(it => (it.desc||'').toUpperCase()).join(' | ');
+  const todoTexto = prov + ' ' + items;
+
+  // 1) Proveedores de COMBUSTIBLE (Copec, Shell, Petrobras, Enex)
+  if(/\b(COPEC|SHELL|PETROBRAS|ESSO|ENEX|ARAMCO|YPF|TERPEL)\b/.test(prov) ||
+     /\b(DIESEL|BENCINA|GASOLINA|COMBUSTIBLE|PETROLEO)\b/.test(items)) {
+    return { destino: 'gasto', familia: 'Combustible', motivo: 'Proveedor/producto de combustible' };
+  }
+
+  // 2) Servicios básicos (agua, luz, gas, internet)
+  if(/\b(SAESA|CGE|CHILECTRA|ENEL|AGUAS |ESSAL|LIPIGAS|ABASTIBLE|GASCO|MOVISTAR|ENTEL|CLARO|VTR|GTD|MUNDO |WOM |DIRECTV)\b/.test(prov) ||
+     /\b(SUMINISTRO ELECTR|SERVICIO AGUA|GAS LICUADO|INTERNET|TELEFON)/.test(items)) {
+    return { destino: 'gasto', familia: 'Servicios', motivo: 'Servicio básico' };
+  }
+
+  // 3) FERRETERÍA / Materiales de construcción
+  if(/\b(EASY|SODIMAC|CONSTRUMART|IMPERIAL|MTS |CHILEMAT|CONSTRUCTORA)\b/.test(prov) ||
+     /\b(CUBREJUNTA|AMPOLLETA|CLAVOS|TORNILLOS|MARTILLO|SILICON|PINTURA|BROCHA|DESTORNILL|LLAVE INGLES|CEMENTO|MADERA )\b/.test(items)) {
+    return { destino: 'gasto', familia: 'Ferretería', motivo: 'Ferretería / materiales' };
+  }
+
+  // 4) ENVASES / EMPAQUES
+  if(/\b(ENVASES |EMPAQUES|CARTOMONTT|BOLSAS |PACKAGING)\b/.test(prov) ||
+     /\b(BOLSA CRISTAL|BOLSA CAMISETA|VASO KRAFT|POTE KRAFT|TAPA POTE|CAJA CARTON|FILM PVC|ISOPOR)\b/.test(items)) {
+    return { destino: 'gasto', familia: 'Envases/Empaques', motivo: 'Envases/empaques' };
+  }
+
+  // 5) Productos de ASEO (industrial: químicos de limpieza, no ingredientes)
+  //    Solo detectar si el proveedor es especializado o si predominan químicos.
+  //    Cuidado: papel higiénico y jabón pueden estar en supermercado mixto - se decide por proveedor.
+  if(/\b(VIRUTEX|DYQUIM|CLEAN |ASEO |QUIMICOS|DETERGENTES)\b/.test(prov)) {
+    return { destino: 'gasto', familia: 'Aseo', motivo: 'Proveedor de aseo/limpieza' };
+  }
+
+  // 6) Documentos que NO son factura afecta (Guías de Despacho tipo 52 llegan del SII también)
+  if(factura.tipoDoc === '52') {
+    return { destino: 'otros', motivo: 'Guía de Despacho (no es factura)' };
+  }
+  if(factura.tipoDoc === '61') {
+    return { destino: 'otros', motivo: 'Nota de Crédito' };
+  }
+
+  // 7) Por defecto → bodega (proveedores de alimentos, insumos, etc.)
+  return { destino: 'bodega', motivo: 'Insumos/materia prima' };
+}
+
 function parseXMLFactura(xmlText) {
   // Limpiar namespaces y atributos con prefijo que rompen el parser
   let xmlLimpio = xmlText
@@ -2731,6 +2953,7 @@ function parseXMLFactura(xmlText) {
   };
   const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
   const folio = get('Folio'), fecha = get('FchEmis'), proveedor = get('RznSoc');
+  const tipoDoc = get('TipoDTE');  // 33=Fac.Afecta, 34=Fac.Exenta, 52=Guía, 56=ND, 61=NC
   const mntNeto = parseFloat(get('MntNeto'))||0, iva = parseFloat(get('IVA'))||0;
   const tasaIVA = parseFloat(get('TasaIVA'))||19, mntTotal = parseFloat(get('MntTotal'))||0;
   const factorIVA = 1 + tasaIVA/100;
@@ -2765,7 +2988,7 @@ function parseXMLFactura(xmlText) {
       umAmbigua: umVacio  // true cuando el XML no traía UnmdItem — el usuario debe confirmar
     };
   });
-  return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
+  return { folio, fecha, proveedor, tipoDoc, mntNeto, iva, mntTotal, factorIVA, items };
 }
 
 
