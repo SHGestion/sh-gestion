@@ -525,8 +525,27 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
       #tab-inventario .card { box-shadow: none; border: none; }
       body { background: white; }
       .inv-row td { padding: 10px 6px; font-size: 13px; }
+      /* Modo ciego: oculta stock del sistema, diferencia y grupos */
+      body.print-ciego .inv-stock-sistema,
+      body.print-ciego .inv-diff,
+      body.print-ciego .inv-cant-extra {
+        display: none !important;
+      }
+      body.print-ciego .inv-linea::before {
+        content: '';
+        display: block;
+        border-bottom: 1px solid #333;
+        width: 100px;
+        height: 24px;
+      }
+      body.print-ciego .inv-cantidad-input { display: none !important; }
+      body.print-ciego .print-firma { display: block !important; }
+      /* Modo revisión: muestra todo, no muestra líneas para escribir */
+      body.print-revision .inv-linea::before { content: ''; }
+      body.print-revision .print-firma { display: none !important; }
     }
     .print-only { display: none; }
+    .print-firma { display: none; }
     .inv-row td input { font-size: 15px; padding: 8px; border-radius: 8px; border: 1px solid #ddd; width: 90px; text-align: right; }
     .inv-diff-ok { color: #2e7d32; font-weight: 600; }
     .inv-diff-warn { color: #e65100; font-weight: 700; }
@@ -538,7 +557,8 @@ td input,td select{padding:3px 5px;font-size:12px;border-radius:6px}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <strong style="font-size:15px">Toma de Inventario Físico</strong>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="window.print()">🖨 Imprimir lista</button>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="imprimirInventarioCiego()" title="Para el auditor: sin stock del sistema visible">📋 Imprimir para contar</button>
+        <button class="btn" style="font-size:12px;padding:6px 12px" onclick="imprimirInventarioRevision()" title="Para revisar: muestra sistema vs físico">🔍 Imprimir revisión</button>
         <button class="btn" style="font-size:12px;padding:6px 12px" onclick="cargarInventario()">↻ Actualizar</button>
       </div>
     </div>
@@ -947,9 +967,6 @@ let ingredientesDia = [];
 let filasExtra = [];
 let stockDia = {}; // stock actual por ingrediente (UPPERCASE), calculado al cargarDia
 let diaTieneRegistros = false; // true si el día ya fue registrado (bloquea edición)
-// Rastreo de reemplazos elegidos en el día actual
-let reemplazosFila = {};   // {idxFila: nombreOriginal}
-let comprometidoPorReemplazo = {}; // {NOMBRE_UPPER: kg_comprometidos}
 
 // ── UTILIDADES ───────────────────────────────────────────────────────────────
 function parseFecha(raw) {
@@ -1426,8 +1443,6 @@ async function cargarDia() {
   document.getElementById('ctbody').innerHTML = '';
   document.getElementById('cestado').style.display = 'none';
   filasExtra = [];
-  reemplazosFila = {};
-  comprometidoPorReemplazo = {};
 
   // Cargar movimientos del día para detectar estado
   const movRows = await gsGet('Movimientos');
@@ -1580,19 +1595,6 @@ function renderC() {
   tb.innerHTML = '';
   const todo2 = [...ingredientesDia, ...filasExtra.map(f => ({...f, manual: true}))];
 
-  // Recalcular lo comprometido por reemplazos
-  comprometidoPorReemplazo = {};
-  todo2.forEach((row, idx) => {
-    if(!reemplazosFila[idx]) return;
-    const nuevoIng = (row.ing || '').toUpperCase().trim();
-    if(!nuevoIng) return;
-    const r = parseFloat(row.real);
-    let cant;
-    if(row.real !== '' && !isNaN(r) && r === 0) cant = 0;
-    else cant = isNaN(r) ? (row.plan || 0) : Math.max(r, row.plan || 0);
-    comprometidoPorReemplazo[nuevoIng] = (comprometidoPorReemplazo[nuevoIng] || 0) + cant;
-  });
-
   // Calcular el consumo TOTAL agregado por ingrediente para el día completo
   // (la misma cebolla puede aparecer en varias preparaciones).
   // Si una fila tiene real=0 explícito, esa fila NO suma al agregado (el usuario
@@ -1654,26 +1656,23 @@ function renderC() {
     const requerido = isNaN(r) ? row.plan : Math.max(realVal, row.plan);
     const agregado = consumoAgregado[ingKey] || { total: requerido, cantFilas: 1 };
     const otrasFilas = agregado.cantFilas - 1;  // cuántas OTRAS preparaciones usan el mismo ingrediente
-    let stockHtml;
-    if(stockKg === null) {
-      // Ingrediente sin registros en Movimientos: hacerlo VISUALMENTE muy evidente
-      stockHtml = `<span style="color:#c62828;font-weight:700;font-size:12px;background:#ffebee;padding:2px 6px;border-radius:4px;border:1px solid #ef9a9a" title="Este ingrediente no tiene registros de stock. Verifica si es un producto nuevo o si necesita reemplazo.">🚫 Sin registro</span>`;
-    } else {
-      // Normalizar ruido de punto flotante: valores en el rango [-0.001, 0.001] se muestran como 0
-      const stockMostrar = Math.abs(stockKg) < 0.001 ? 0 : stockKg;
-      const insuficiente = stockMostrar < agregado.total - 0.001;
-      const cero = stockMostrar <= 0.001;
+    let stockHtml = '<span style="color:#bbb">—</span>';
+    if(stockKg !== null) {
+      // El "insuficiente" se evalúa contra el TOTAL agregado del día, no contra la fila individual
+      const insuficiente = stockKg < agregado.total - 0.001;
+      const cero = stockKg <= 0.001;
       const colorStk = cero ? '#c62828' : insuficiente ? '#e65100' : '#2e7d32';
       const peso = (cero || insuficiente) ? '700' : '400';
       const icono = cero ? '⛔' : insuficiente ? '⚠' : '';
-      let tooltip = `Stock: ${stockMostrar.toFixed(3)} kg`;
+      let tooltip = `Stock: ${stockKg.toFixed(3)} kg`;
       if(otrasFilas > 0) {
         tooltip += ` · Consumo total día: ${agregado.total.toFixed(3)} kg (${agregado.cantFilas} preparaciones)`;
       }
+      // Indicador visual: si hay otras filas, mostrar un pequeño marcador
       const sufijo = otrasFilas > 0
         ? `<span style="font-size:10px;color:#777;display:block;margin-top:1px" title="${tooltip}">×${agregado.cantFilas} total ${agregado.total.toFixed(2)}</span>`
         : '';
-      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockMostrar.toFixed(3)}</span>${sufijo}`;
+      stockHtml = `<span style="color:${colorStk};font-weight:${peso};font-size:12px" title="${tooltip}">${icono} ${stockKg.toFixed(3)}</span>${sufijo}`;
     }
 
     let inputReal;
@@ -1717,15 +1716,7 @@ function renderC() {
       // Si esta fila tiene real = 0 explícito, no mostrar alternativas para esta fila
       const realRow = parseFloat(row.real);
       if(row.real !== '' && !isNaN(realRow) && realRow === 0) return;
-      // Casos que exigen mostrar alternativas:
-      //  a) Sin registro (ingrediente no está en Movimientos)
-      //  b) Stock (ajustado por reemplazos comprometidos) no alcanza
-      //  c) La fila ya fue reemplazada (permite deshacer/cambiar)
-      const sinRegistro = stk === undefined;
-      const compr = comprometidoPorReemplazo[ingKey] || 0;
-      const stkAj = (stk !== undefined ? stk : 0) - compr;
-      const stockInsuf = stk !== undefined && ag && ag.total > 0 && stkAj < ag.total - 0.001;
-      if(sinRegistro || stockInsuf || reemplazosFila[i]) {
+      if(stk !== undefined && ag && ag.total > 0 && stk < ag.total - 0.001) {
         mostrarAlternativasInline(i, row.ing, stockDia);
       }
     });
@@ -1748,89 +1739,33 @@ function mostrarAlternativasInline(i, ing, stockActual) {
   const altRow = document.getElementById(`calt-${i}`);
   const altInner = document.getElementById(`calt-inner-${i}`);
   if(!altRow || !altInner) return;
+  if(!alts.length) {
+    altRow.style.display = 'none';
+    return;
+  }
   altRow.style.display = '';
   const ingUp = ing.toUpperCase();
   const subgrupo = getSubgrupo(ingUp);
   const etiqueta = subgrupo ? subgrupo.nombre : (ING_A_FAMILIA[ingUp] || 'misma familia');
-
-  // Stock ajustado descontando lo ya comprometido en reemplazos previos del día
-  const stockAjustado = (nombre) => {
-    const key = nombre.toUpperCase().trim();
-    const bruto = stockActual[key] !== undefined ? stockActual[key] : 0;
-    const comprometido = comprometidoPorReemplazo[key] || 0;
-    return bruto - comprometido;
-  };
-
-  // Tags rápidos: alternativas de la misma familia con stock disponible
-  const altsAjustadas = alts
-    .map(a => ({ ...a, stock: stockAjustado(a.nombre) }))
-    .filter(a => a.stock > 0.001)
-    .slice(0, 6);
-
-  // Dropdown completo: todo el inventario con stock > 0, ordenado alfabéticamente
-  const todosInv = Object.keys(stockActual)
-    .map(k => ({ nombre: k, stock: stockAjustado(k) }))
-    .filter(p => p.stock > 0.001 && p.nombre !== ingUp)
-    .sort((a,b) => a.nombre.localeCompare(b.nombre));
-
-  const esReemplazo = !!reemplazosFila[i];
-  const btnDeshacer = esReemplazo
-    ? `<button class="btn" style="font-size:11px;padding:3px 8px;background:#e3f2fd;border-color:#1976d2;color:#1565c0;margin-left:8px" onclick="deshacerReemplazo(${i})">↺ Volver a ${reemplazosFila[i]}</button>`
-    : '';
-
-  const tagsHtml = altsAjustadas.length
-    ? `<div style="margin-top:4px"><span style="font-size:11px;color:#666">Sugerencias (${etiqueta}):</span>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:2px">
-          ${altsAjustadas.map(a =>
-            `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
-              onclick="usarAlternativa(${i},'${a.nombre.replace(/'/g,"\\'")}')">
-              ${a.nombre} (${a.stock.toFixed(2)} kg)
-            </button>`
-          ).join('')}
-        </div></div>`
-    : '';
-
-  const dlId = `dl-alt-${i}`;
-  const dropdownHtml = todosInv.length
-    ? `<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:11px;color:#666">O elige del inventario completo:</span>
-        <input list="${dlId}" placeholder="Escribe para buscar..." id="alt-input-${i}"
-               style="font-size:12px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;min-width:220px"
-               onchange="seleccionarAltDesdeInput(${i}, this.value)">
-        <datalist id="${dlId}">
-          ${todosInv.map(p => `<option value="${p.nombre} (${p.stock.toFixed(2)} kg)">`).join('')}
-        </datalist>
-        <span style="font-size:10px;color:#999">${todosInv.length} productos disponibles</span>
-      </div>`
-    : '<div style="margin-top:6px;font-size:11px;color:#999">No hay más productos con stock disponible.</div>';
-
-  altInner.innerHTML = `<strong>Alternativas disponibles${esReemplazo?' — reemplazado':''}:</strong>${btnDeshacer}${tagsHtml}${dropdownHtml}`;
-}
-
-function seleccionarAltDesdeInput(i, valor) {
-  if(!valor) return;
-  const m = valor.match(/^(.+?)\s*\(\s*[\d.]+\s*kg\s*\)\s*$/i);
-  const nombre = m ? m[1].trim() : valor.trim();
-  if(!nombre) return;
-  usarAlternativa(i, nombre);
+  altInner.innerHTML = `<strong>Alternativas disponibles (${etiqueta}):</strong>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+      ${alts.slice(0,6).map(a =>
+        `<button class="btn" style="font-size:11px;padding:3px 8px;background:#fff3e0;border-color:#ffb300"
+          onclick="usarAlternativa(${i},'${a.nombre.replace(/'/g,"\\'")}')">
+          ${a.nombre} (${a.stock.toFixed(2)} kg)
+        </button>`
+      ).join('')}
+    </div>`;
 }
 
 function usarAlternativa(i, nombre) {
+  // Guardar valor real actual antes de cambiar
   const inp = document.getElementById(`cinput-${i}`);
   if(inp) ingredientesDia[i].real = inp.value;
-  if(!reemplazosFila[i]) {
-    reemplazosFila[i] = ingredientesDia[i].ing;
-  }
+  // Cambiar el ingrediente al nombre de la alternativa
   ingredientesDia[i].ing = nombre;
-  renderC();
-}
-
-function deshacerReemplazo(i) {
-  if(!reemplazosFila[i]) return;
-  const inp = document.getElementById(`cinput-${i}`);
-  if(inp) ingredientesDia[i].real = inp.value;
-  ingredientesDia[i].ing = reemplazosFila[i];
-  delete reemplazosFila[i];
+  // Re-renderizar todo: stock, diferencia, alternativas y alertas
+  // se recalculan contra el nuevo ingrediente
   renderC();
 }
 
@@ -2313,25 +2248,6 @@ async function procesarXMLsMasivo(files) {
 
     try {
       const text = await file.text();
-      // Detectar si es un XML masivo con múltiples DTE (típico de la descarga del SII)
-      const dtes = separarDTEsMasivos(text);
-      if(dtes.length > 1) {
-        document.getElementById('xml-progreso').textContent = `${i}/${xmlQueue.length}: ${file.name} (${dtes.length} DTEs)`;
-      }
-      for(const dteXml of dtes) {
-        await procesarUnDTE(dteXml, file.name);
-      }
-    } catch(err) {
-      console.warn('Error procesando '+file.name+':', err);
-    }
-  }
-  // Continuar con el resto del flujo original después del bucle
-  await finalizarProcesamientoXML();
-}
-
-// Procesa UN DTE (XML individual) — extraído del bucle original para poder reutilizar
-async function procesarUnDTE(text, nombreArchivo) {
-  try {
       const factura = parseXMLFactura(text);
       const itemsConMapeo = [];
       const sinMapeo = [];
@@ -2387,33 +2303,21 @@ async function procesarUnDTE(text, nombreArchivo) {
         itemsConMapeo.push(item);
       });
 
-      // Clasificar la factura (bodega vs gasto vs otros)
-      const clasif = clasificarFactura({
-        proveedor: factura.proveedor,
-        items: factura.items,
-        tipoDoc: factura.tipoDoc
-      });
-
       xmlResultados.push({
         folio: factura.folio,
         fecha: factura.fecha,
         proveedor: factura.proveedor,
-        tipoDoc: factura.tipoDoc,
         mntTotal: factura.mntTotal,
         factorIVA: factura.factorIVA,
         items: itemsConMapeo,
-        archivo: nombreArchivo,
-        destino: clasif.destino,       // 'bodega' | 'gasto' | 'otros'
-        familia: clasif.familia || '',  // solo si es gasto
-        motivoClasif: clasif.motivo
+        archivo: file.name
       });
       xmlPendienteMapeo.push(...sinMapeo);
     } catch(e) {
-      console.error('Error procesando DTE:', e);
+      console.error('Error procesando', file.name, e);
     }
-}
+  }
 
-async function finalizarProcesamientoXML() {
   // Mostrar resumen
   const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
   const autoItems = totalItems - xmlPendienteMapeo.length;
@@ -2436,67 +2340,26 @@ async function finalizarProcesamientoXML() {
   });
   const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
 
-  // Contadores por destino (bodega/gasto/otros)
-  const cntBodega = xmlResultados.filter(f => f.destino === 'bodega').length;
-  const cntGasto  = xmlResultados.filter(f => f.destino === 'gasto').length;
-  const cntOtros  = xmlResultados.filter(f => f.destino === 'otros').length;
-
   document.getElementById('dzp').innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
-      ✓ ${xmlResultados.length} documento(s) procesado(s)
+      ✓ ${xmlResultados.length} factura(s) procesadas
     </div>
     ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo).
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Revisa antes de registrar para no duplicar.
     </div>` : ''}
-    <div style="font-size:12px;background:#e8f5e9;border:1px solid #a5d6a7;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      <strong>Clasificación automática:</strong>
-      🥩 Bodega: <strong>${cntBodega}</strong> ·
-      💡 Gastos: <strong>${cntGasto}</strong> ·
-      ⛔ Ignorar: <strong>${cntOtros}</strong>
-      <div style="font-size:11px;color:#666;margin-top:4px">Puedes cambiar el destino de cada documento antes de registrar.</div>
-    </div>
     <div style="font-size:13px;color:#555;margin-bottom:4px">
       • ${autoItems} ítems con mapeo automático
     </div>
     <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
       • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
     </div>
-    ${xmlResultados.map((f,fi)=>{
-      const bgColor = f._yaRegistrada ? '#fff3cd'
-        : f.destino === 'gasto' ? '#e3f2fd'
-        : f.destino === 'otros' ? '#f5f5f5'
-        : '#f5f5f7';
-      const border = f._yaRegistrada ? ';border:1px solid #f59e0b'
-        : f.destino === 'gasto' ? ';border:1px solid #90caf9'
-        : f.destino === 'otros' ? ';border:1px solid #ccc;opacity:0.7'
-        : '';
-      const iconoDest = f.destino === 'gasto' ? '💡' : f.destino === 'otros' ? '⛔' : '🥩';
-      const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
-      return `
-      <div id="xmlrow-${fi}" style="font-size:12px;background:${bgColor};padding:8px 10px;border-radius:6px;margin-bottom:6px${border}">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-          <div>
-            <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
-            <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
-          </div>
-          <div style="display:flex;gap:4px;align-items:center">
-            ${iconoDest}
-            <select style="font-size:11px;padding:2px 4px" onchange="cambiarDestinoFactura(${fi}, this.value)">
-              <option value="bodega"${f.destino==='bodega'?' selected':''}>🥩 Bodega</option>
-              <option value="gasto"${f.destino==='gasto'?' selected':''}>💡 Gasto</option>
-              <option value="otros"${f.destino==='otros'?' selected':''}>⛔ Ignorar</option>
-            </select>
-            ${f.destino === 'gasto' ? `<select style="font-size:11px;padding:2px 4px" onchange="cambiarFamiliaGasto(${fi}, this.value)">
-              ${familias.map(fam => `<option value="${fam}"${f.familia===fam?' selected':''}>${fam}</option>`).join('')}
-            </select>` : ''}
-          </div>
-        </div>
-        <div style="font-size:11px;color:#666;margin-top:4px">
-          ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
-            <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:`<em>${f.motivoClasif||''}</em>`}
-        </div>
-      </div>`;
-    }).join('')}`;
+    ${xmlResultados.map((f,fi)=>`
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
+        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
+      </div>`).join('')}`;
 
   document.getElementById('dz').classList.add('loaded');
   document.getElementById('proc').style.display = 'none';
@@ -2549,21 +2412,6 @@ function revisarMapeoXML() {
   fGo(2);
 }
 
-function cambiarDestinoFactura(idx, nuevoDestino) {
-  if(!xmlResultados[idx]) return;
-  xmlResultados[idx].destino = nuevoDestino;
-  // Si pasa a "gasto" y no tiene familia asignada, poner "Otros gastos"
-  if(nuevoDestino === 'gasto' && !xmlResultados[idx].familia) {
-    xmlResultados[idx].familia = 'Otros gastos';
-  }
-  rerenderResumenXML();
-}
-
-function cambiarFamiliaGasto(idx, familia) {
-  if(!xmlResultados[idx]) return;
-  xmlResultados[idx].familia = familia;
-}
-
 function descartarFacturaXML(idx) {
   const f = xmlResultados[idx];
   if(!f) return;
@@ -2586,81 +2434,43 @@ function rerenderResumenXML() {
   const totalItems = xmlResultados.reduce((s,f)=>s+f.items.length, 0);
   const autoItems = totalItems - xmlPendienteMapeo.length;
   const numDuplicadas = xmlResultados.filter(f => f._yaRegistrada).length;
-  const cntBodega = xmlResultados.filter(f => f.destino === 'bodega').length;
-  const cntGasto  = xmlResultados.filter(f => f.destino === 'gasto').length;
-  const cntOtros  = xmlResultados.filter(f => f.destino === 'otros').length;
 
   document.getElementById('dzp').innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#2e7d32;margin-bottom:10px">
-      ✓ ${xmlResultados.length} documento(s) procesado(s)
+      ✓ ${xmlResultados.length} factura(s) procesadas
     </div>
     ${numDuplicadas > 0 ? `<div style="font-size:13px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes.
+      ⚠ ${numDuplicadas} factura(s) YA fueron registradas antes (marcadas abajo). Descártalas o registra con cuidado.
     </div>` : ''}
-    <div style="font-size:12px;background:#e8f5e9;border:1px solid #a5d6a7;padding:8px 10px;border-radius:8px;margin-bottom:10px">
-      <strong>Clasificación:</strong>
-      🥩 Bodega: <strong>${cntBodega}</strong> ·
-      💡 Gastos: <strong>${cntGasto}</strong> ·
-      ⛔ Ignorar: <strong>${cntOtros}</strong>
-    </div>
     <div style="font-size:13px;color:#555;margin-bottom:4px">
       • ${autoItems} ítems con mapeo automático
     </div>
     <div style="font-size:13px;color:${xmlPendienteMapeo.length>0?'#e65100':'#555'};margin-bottom:12px">
       • ${xmlPendienteMapeo.length} ítems nuevos requieren mapeo
     </div>
-    ${xmlResultados.map((f,fi)=>{
-      const bgColor = f._yaRegistrada ? '#fff3cd'
-        : f.destino === 'gasto' ? '#e3f2fd'
-        : f.destino === 'otros' ? '#f5f5f5'
-        : '#f5f5f7';
-      const border = f._yaRegistrada ? ';border:1px solid #f59e0b'
-        : f.destino === 'gasto' ? ';border:1px solid #90caf9'
-        : f.destino === 'otros' ? ';border:1px solid #ccc;opacity:0.7'
-        : '';
-      const iconoDest = f.destino === 'gasto' ? '💡' : f.destino === 'otros' ? '⛔' : '🥩';
-      const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
-      return `
-      <div id="xmlrow-${fi}" style="font-size:12px;background:${bgColor};padding:8px 10px;border-radius:6px;margin-bottom:6px${border}">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-          <div>
-            <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
-            <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
-          </div>
-          <div style="display:flex;gap:4px;align-items:center">
-            ${iconoDest}
-            <select style="font-size:11px;padding:2px 4px" onchange="cambiarDestinoFactura(${fi}, this.value)">
-              <option value="bodega"${f.destino==='bodega'?' selected':''}>🥩 Bodega</option>
-              <option value="gasto"${f.destino==='gasto'?' selected':''}>💡 Gasto</option>
-              <option value="otros"${f.destino==='otros'?' selected':''}>⛔ Ignorar</option>
-            </select>
-            ${f.destino === 'gasto' ? `<select style="font-size:11px;padding:2px 4px" onchange="cambiarFamiliaGasto(${fi}, this.value)">
-              ${familias.map(fam => `<option value="${fam}"${f.familia===fam?' selected':''}>${fam}</option>`).join('')}
-            </select>` : ''}
-          </div>
-        </div>
-        <div style="font-size:11px;color:#666;margin-top:4px">
-          ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
-            <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:`<em>${f.motivoClasif||''}</em>`}
-        </div>
-      </div>`;
-    }).join('')}`;
+    ${xmlResultados.map((f,fi)=>`
+      <div id="xmlrow-${fi}" style="font-size:12px;background:${f._yaRegistrada?'#fff3cd':'#f5f5f7'};padding:6px 10px;border-radius:6px;margin-bottom:4px${f._yaRegistrada?';border:1px solid #f59e0b':''}">
+        <strong>${f.folio}</strong> — ${f.proveedor} — $${Math.round(f.mntTotal).toLocaleString('es-CL')}
+        <span style="color:#888;margin-left:6px">(${f.items.length} ítems)</span>
+        ${f._yaRegistrada?`<span style="color:#92400e;font-weight:600;margin-left:6px">⚠ YA REGISTRADA (${f._yaRegistrada})</span>
+          <button onclick="descartarFacturaXML(${fi})" style="margin-left:8px;background:#fff;border:1px solid #c62828;color:#c62828;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px">🗑 Descartar</button>`:''}
+      </div>`).join('')}`;
 
   // Re-crear botones de acción
   const actDiv = document.createElement('div');
   actDiv.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap';
-  if(xmlPendienteMapeo.length > 0 && cntBodega > 0) {
+  if(xmlPendienteMapeo.length > 0) {
     actDiv.innerHTML = `
       <button class="btn" style="flex:1;font-size:13px;padding:9px" onclick="revisarMapeoXML()">
         🗂 Revisar ${xmlPendienteMapeo.length} ítem(s) sin mapeo
       </button>
       <button class="btn btnp" style="flex:2;font-size:13px;padding:9px" onclick="registrarTodosXML()">
-        Registrar todo →
+        Registrar lo mapeado + revisar nuevos →
       </button>`;
   } else {
     actDiv.innerHTML = `
       <button class="btn btnp" style="width:100%;font-size:14px;padding:10px" onclick="registrarTodosXML()">
-        ✓ Registrar todos los documentos →
+        ✓ Registrar todas las facturas →
       </button>`;
   }
   document.getElementById('dzp').appendChild(actDiv);
@@ -2738,33 +2548,10 @@ async function registrarTodosXML() {
     const b = document.getElementById('xml-reg-bar'); if(b && pct!=null) b.style.width = pct+'%';
   };
 
-  // Construir TODAS las filas de Movimientos, Facturas_Log y Gastos_GS según el destino de cada factura
+  // Construir TODAS las filas de Movimientos y de Facturas_Log primero
   const filasMov = [];
   const filasLog = [];
-  const filasGasto = [];  // filas para Gastos_GS
   xmlResultados.forEach(fact => {
-    // Destino "otros" (ignorar) → no procesar en absoluto
-    if(fact.destino === 'otros') return;
-    // Destino "gasto" → agregar UNA fila a Gastos_GS y no tocar bodega
-    if(fact.destino === 'gasto') {
-      const desc = fact.proveedor + ' — ' + fact.items.map(i=>i.desc).join(', ').substring(0,80);
-      filasGasto.push([
-        fact.fecha,
-        desc,
-        fact.familia || 'Otros gastos',
-        fact.tipoDoc === '52' ? 'Guía Despacho' : 'Factura',
-        fact.folio,
-        Math.round(fact.mntTotal),
-        u
-      ]);
-      // También registrar en Facturas_Log para el chequeo de duplicados
-      filasLog.push([
-        fact.fecha, fact.proveedor, fact.folio, fact.items.length,
-        Math.round(fact.mntTotal), u, 'GASTO: ' + (fact.familia||'Otros gastos')
-      ]);
-      return;
-    }
-    // Destino "bodega" → procesar como antes
     const itemsAuto = fact.items.filter(it => it.conf > 0);
     if(!itemsAuto.length) return;
     let totFactura = 0;
@@ -2780,9 +2567,6 @@ async function registrarTodosXML() {
         kg, 'Kg', Math.round(pxkg), totalLinea,
         fact.folio, fact.proveedor, u, it.desc
       ]);
-      // Marcar el item como ya registrado para bloquearlo en la vista de revisión posterior
-      it._yaRegistrado = true;
-      it._kgRegistrado = kg;
     });
     filasLog.push([
       fact.fecha, fact.proveedor, fact.folio, itemsAuto.length,
@@ -2823,14 +2607,6 @@ async function registrarTodosXML() {
         body: JSON.stringify({accion:'batch', hoja:'Facturas_Log', filas: filasLog})
       }, 30000);
     }
-    if(filasGasto.length > 0) {
-      setMsg('Registrando gastos...', 95);
-      await fetchTimeout(API, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({accion:'batch', hoja:'Gastos_GS', filas: filasGasto})
-      }, 30000);
-    }
     setMsg('Listo', 100);
   } catch(e) {
     const statusEl = document.getElementById('xml-reg-status');
@@ -2845,10 +2621,9 @@ async function registrarTodosXML() {
 
   const statusEl = document.getElementById('xml-reg-status');
   if(statusEl) {
-    const gastosMsg = filasGasto.length > 0 ? '<br>💡 '+filasGasto.length+' gasto(s) registrado(s).' : '';
     statusEl.style.background = totalErrores === 0 ? '#e8f5e9' : '#fff3e0';
     statusEl.innerHTML = `<div style="color:${totalErrores===0?'#2e7d32':'#e65100'};font-weight:600">
-      ✓ ${totalRegistrados} ítems de bodega registrados.${gastosMsg}
+      ✓ ${totalRegistrados} ítems registrados en ${xmlResultados.length} factura(s).
       ${totalErrores>0 ? '<br>⚠ '+totalErrores+' con error.' : ''}
       ${xmlPendienteMapeo.length > 0 ? '<br>⚠ Pasando a revisar '+xmlPendienteMapeo.length+' ítems sin mapeo...' : ''}
     </div>`;
@@ -2876,71 +2651,6 @@ async function registrarTodosXML() {
 }
 
 // ── PROCESAMIENTO XML DTE ────────────────────────────────────────────────────
-
-// Detectar si el XML es un archivo masivo (múltiples DTE) o individual.
-// Devuelve un ARRAY de strings XML, cada uno con un DTE parseable individualmente.
-// Los del SII vienen como <SetDTE> o <EnvioDTE> con muchos <DTE> adentro.
-function separarDTEsMasivos(xmlText) {
-  // Buscar bloques <DTE...>...</DTE> - cada uno representa una factura/DTE distinto
-  const matches = xmlText.match(/<DTE\b[^>]*>[\s\S]*?<\/DTE>/g);
-  if(matches && matches.length > 1) {
-    // Es un XML masivo con múltiples DTE
-    return matches;
-  }
-  // Individual: devolver el XML tal cual como único elemento
-  return [xmlText];
-}
-
-// Clasificador de facturas por categoría (bodega vs gasto vs otros)
-// Devuelve: { destino: 'bodega'|'gasto'|'otros', familia?: string, motivo: string }
-function clasificarFactura(factura) {
-  const prov = (factura.proveedor||'').toUpperCase();
-  const items = (factura.items||[]).map(it => (it.desc||'').toUpperCase()).join(' | ');
-  const todoTexto = prov + ' ' + items;
-
-  // 1) Proveedores de COMBUSTIBLE (Copec, Shell, Petrobras, Enex)
-  if(/\b(COPEC|SHELL|PETROBRAS|ESSO|ENEX|ARAMCO|YPF|TERPEL)\b/.test(prov) ||
-     /\b(DIESEL|BENCINA|GASOLINA|COMBUSTIBLE|PETROLEO)\b/.test(items)) {
-    return { destino: 'gasto', familia: 'Combustible', motivo: 'Proveedor/producto de combustible' };
-  }
-
-  // 2) Servicios básicos (agua, luz, gas, internet)
-  if(/\b(SAESA|CGE|CHILECTRA|ENEL|AGUAS |ESSAL|LIPIGAS|ABASTIBLE|GASCO|MOVISTAR|ENTEL|CLARO|VTR|GTD|MUNDO |WOM |DIRECTV)\b/.test(prov) ||
-     /\b(SUMINISTRO ELECTR|SERVICIO AGUA|GAS LICUADO|INTERNET|TELEFON)/.test(items)) {
-    return { destino: 'gasto', familia: 'Servicios', motivo: 'Servicio básico' };
-  }
-
-  // 3) FERRETERÍA / Materiales de construcción
-  if(/\b(EASY|SODIMAC|CONSTRUMART|IMPERIAL|MTS |CHILEMAT|CONSTRUCTORA)\b/.test(prov) ||
-     /\b(CUBREJUNTA|AMPOLLETA|CLAVOS|TORNILLOS|MARTILLO|SILICON|PINTURA|BROCHA|DESTORNILL|LLAVE INGLES|CEMENTO|MADERA )\b/.test(items)) {
-    return { destino: 'gasto', familia: 'Ferretería', motivo: 'Ferretería / materiales' };
-  }
-
-  // 4) ENVASES / EMPAQUES
-  if(/\b(ENVASES |EMPAQUES|CARTOMONTT|BOLSAS |PACKAGING)\b/.test(prov) ||
-     /\b(BOLSA CRISTAL|BOLSA CAMISETA|VASO KRAFT|POTE KRAFT|TAPA POTE|CAJA CARTON|FILM PVC|ISOPOR)\b/.test(items)) {
-    return { destino: 'gasto', familia: 'Envases/Empaques', motivo: 'Envases/empaques' };
-  }
-
-  // 5) Productos de ASEO (industrial: químicos de limpieza, no ingredientes)
-  //    Solo detectar si el proveedor es especializado o si predominan químicos.
-  //    Cuidado: papel higiénico y jabón pueden estar en supermercado mixto - se decide por proveedor.
-  if(/\b(VIRUTEX|DYQUIM|CLEAN |ASEO |QUIMICOS|DETERGENTES)\b/.test(prov)) {
-    return { destino: 'gasto', familia: 'Aseo', motivo: 'Proveedor de aseo/limpieza' };
-  }
-
-  // 6) Documentos que NO son factura afecta (Guías de Despacho tipo 52 llegan del SII también)
-  if(factura.tipoDoc === '52') {
-    return { destino: 'otros', motivo: 'Guía de Despacho (no es factura)' };
-  }
-  if(factura.tipoDoc === '61') {
-    return { destino: 'otros', motivo: 'Nota de Crédito' };
-  }
-
-  // 7) Por defecto → bodega (proveedores de alimentos, insumos, etc.)
-  return { destino: 'bodega', motivo: 'Insumos/materia prima' };
-}
-
 function parseXMLFactura(xmlText) {
   // Limpiar namespaces y atributos con prefijo que rompen el parser
   let xmlLimpio = xmlText
@@ -2956,7 +2666,6 @@ function parseXMLFactura(xmlText) {
   };
   const getAll = (tag) => Array.from(doc.getElementsByTagName(tag));
   const folio = get('Folio'), fecha = get('FchEmis'), proveedor = get('RznSoc');
-  const tipoDoc = get('TipoDTE');  // 33=Fac.Afecta, 34=Fac.Exenta, 52=Guía, 56=ND, 61=NC
   const mntNeto = parseFloat(get('MntNeto'))||0, iva = parseFloat(get('IVA'))||0;
   const tasaIVA = parseFloat(get('TasaIVA'))||19, mntTotal = parseFloat(get('MntTotal'))||0;
   const factorIVA = 1 + tasaIVA/100;
@@ -2991,7 +2700,7 @@ function parseXMLFactura(xmlText) {
       umAmbigua: umVacio  // true cuando el XML no traía UnmdItem — el usuario debe confirmar
     };
   });
-  return { folio, fecha, proveedor, tipoDoc, mntNeto, iva, mntTotal, factorIVA, items };
+  return { folio, fecha, proveedor, mntNeto, iva, mntTotal, factorIVA, items };
 }
 
 
@@ -3014,30 +2723,25 @@ function simular(tipo) {
 }
 
 function renderTablaF() {
-  let ok=0, wn=0, er=0, yaReg=0, alertas=[];
+  let ok=0, wn=0, er=0, alertas=[];
   const tb = document.getElementById('ftbody');
   tb.innerHTML = '';
 
   itemsF.forEach((it, i) => {
-    if(it._yaRegistrado) yaReg++;
-    else if(it.conf===1) ok++;
-    else if(it.conf===2) wn++;
-    else er++;
-    const cls = it._yaRegistrado?'rreg':it.conf===1?'rok':it.conf===2?'rwarn':'rerr';
+    if(it.conf===1) ok++; else if(it.conf===2) wn++; else er++;
+    const cls = it.conf===1?'rok':it.conf===2?'rwarn':'rerr';
     const factor = getKgFactorItem(it);
     const kgEquiv = parseFloat(it.cantEdit||it.cant) * factor;
     const pxkgF = it.punit / factor;
     const pSist = it.mapeo ? getPrecioSistema(it.mapeo) : null;
     const difPct = pSist ? (pxkgF - pSist) / pSist : 0;
     const hayAlerta = pSist && Math.abs(difPct) > 0.05;
-    if(hayAlerta && !it._yaRegistrado) alertas.push({ing:it.mapeo, pF:Math.round(pxkgF), pS:pSist, d:Math.round(difPct*100)});
+    if(hayAlerta) alertas.push({ing:it.mapeo, pF:Math.round(pxkgF), pS:pSist, d:Math.round(difPct*100)});
 
     const scoreTxt = it.mapeoSugerido && it.scoreAprox
       ? `<br><span style="font-size:10px;color:#888">~${Math.round(it.scoreAprox*100)}% similitud</span>`
       : '';
-    const st = it._yaRegistrado
-      ? `<span style="color:#1565c0;font-size:12px;font-weight:600">🔒 Registrado</span><br><span style="font-size:10px;color:#888">${it._kgRegistrado} kg en Movimientos</span>`
-      : it.conf===1
+    const st = it.conf===1
       ? '<span style="color:#2e7d32;font-size:12px">OK</span>'
       : it.conf===2 ? '<span style="color:#e65100;font-size:12px">Revisar</span>'+scoreTxt
       : '<span style="color:#c62828;font-size:12px">Sin mapeo</span>';
@@ -3047,42 +2751,29 @@ function renderTablaF() {
       .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'))
       .map(p=>`<option value="${p.nombre}"${(it.mapeo && p.nombre===it.mapeo)?' selected':''}>${p.nombre}</option>`).join('');
 
-    // Si ya está registrado: mostrar el mapeo como texto plano (no select)
-    const selectHtml = it._yaRegistrado
-      ? `<span style="font-size:12px;color:#555">${it.mapeo || '—'}</span>`
-      : `<select style="font-size:11px" onchange="mapF(${i},this.value)">
-          <option value=""${!it.mapeo?' selected':''}>— seleccionar —</option>
-          ${maestroOpts}
-          <option value="__new__">+ Nuevo ingrediente</option>
-        </select>`;
+    const selectHtml = `<select style="font-size:11px" onchange="mapF(${i},this.value)">
+      <option value=""${!it.mapeo?' selected':''}>— seleccionar —</option>
+      ${maestroOpts}
+      <option value="__new__">+ Nuevo ingrediente</option>
+    </select>`;
 
     // Botón de confirmar línea
-    const btnConfirmar = it._yaRegistrado
-      ? `<span style="color:#1565c0;font-size:14px" title="Ya registrado en Movimientos">🔒</span>`
-      : it._destinoGasto
-      ? `<span style="color:#f57c00;font-size:12px;font-weight:600" title="Se registrará en Gastos, no en bodega">💡 A Gastos</span>
-         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff;margin-left:4px" onclick="volverBodegaItem(${i})">↺</button>`
-      : it.conf===1
-      ? `<span style="color:#2e7d32;font-size:16px">✓</span>
-         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff3e0;border-color:#ffb300;margin-left:4px" title="Enviar este ítem a Gastos en vez de bodega" onclick="enviarItemAGastos(${i})">💡 Gasto</button>`
+    const btnConfirmar = it.conf===1
+      ? `<span style="color:#2e7d32;font-size:16px">✓</span>`
       : `<button class="btn" style="padding:3px 8px;font-size:11px;background:#f5f5f7"
-           onclick="confirmarItem(${i})">✓ OK</button>
-         <button class="btn" style="padding:2px 6px;font-size:10px;background:#fff3e0;border-color:#ffb300;margin-left:2px" title="Enviar a Gastos sin mapear a bodega" onclick="enviarItemAGastos(${i})">💡</button>`;
+           onclick="confirmarItem(${i})">✓ OK</button>`;
 
-    // Inputs bloqueados si el item ya fue registrado (no editables)
-    const disabledAttr = it._yaRegistrado ? ' disabled style="font-size:12px;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px"';
-    const disabledStyleUm = it._yaRegistrado ? ';background:#f0f0f0;color:#555;cursor:not-allowed' : '';
     tb.innerHTML += `<tr class="${cls}">
       <td><strong style="font-size:12px">${it.desc}</strong></td>
       <td>${selectHtml}</td>
-      <td><input type="number" value="${it.cantEdit||it.cant}"${it._yaRegistrado ? ' disabled style="font-size:12px;width:65px;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px;width:65px"'}
+      <td><input type="number" value="${it.cantEdit||it.cant}" style="font-size:12px;width:65px"
           onchange="editF(${i},'cant',this.value)" step="0.001"></td>
-      <td><select${it._yaRegistrado?' disabled':''} style="font-size:11px;width:65px${disabledStyleUm}" onchange="editF(${i},'um',this.value)">
+      <td><select style="font-size:11px;width:65px" onchange="editF(${i},'um',this.value)">
         <option value="Un"${(it.umEdit||it.um)==='Un'?' selected':''}>Un</option>
         <option value="Kg"${(it.umEdit||it.um)==='Kg'?' selected':''}>Kg</option>
         <option value="Lt"${(it.umEdit||it.um)==='Lt'?' selected':''}>Lt</option>
       </select>${it.esKgDirecto?'<div style="font-size:10px;color:#5e35b1;margin-top:2px">🐄 Kg directo</div>':(it.factorAprendido?'<div style="font-size:10px;color:#1976d2;margin-top:2px">📌 '+it.factorAprendido+' kg/un</div>':(it.umAmbigua&&!it.factorAprendido?'<div style="font-size:10px;color:#e65100;margin-top:2px" title="El XML no traía unidad de medida. Verifica si son Un o Kg.">⚠ revisar UM</div>':''))}</td>
-      <td style="text-align:right"><input type="number" value="${it.punit}"${it._yaRegistrado ? ' disabled style="font-size:12px;width:75px;text-align:right;background:#f0f0f0;color:#555;cursor:not-allowed"' : ' style="font-size:12px;width:75px;text-align:right"'} onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
+      <td style="text-align:right"><input type="number" value="${it.punit}" style="font-size:12px;width:75px;text-align:right" onchange="editF(${i},'punit',this.value)" step="1" min="0"></td>
       <td style="text-align:right;font-size:12px">${kgEquiv.toFixed(3)}</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">$${Math.round(pxkgF).toLocaleString('es-CL')}/kg</td>
       <td style="text-align:right" class="${hayAlerta?'warn-precio':'ok-precio'}">${pSist?'$'+pSist.toLocaleString('es-CL')+'/kg':'—'}</td>
@@ -3099,35 +2790,6 @@ function renderTablaF() {
     <div class="metric"><div class="metric-val" style="color:#c62828">${er}</div><div class="metric-lbl">Sin mapeo</div></div>`;
 
   window._alertasPrecios = alertas;
-}
-
-// Marca un ítem individual para enviar a Gastos_GS en vez de Movimientos.
-// Útil para casos como TOALLITAS que llegan en una factura de bodega pero son insumo de aseo.
-function enviarItemAGastos(i) {
-  if(!itemsF[i]) return;
-  const familias = ['Combustible','Servicios','Ferretería','Envases/Empaques','Aseo','Otros gastos'];
-  const familiaDefault = 'Aseo';  // por defecto Aseo, es el caso más frecuente para items sueltos
-  const familia = prompt(
-    `Enviar "${itemsF[i].desc}" a Gastos.\n\nFamilia (${familias.join(' / ')}):`,
-    familiaDefault
-  );
-  if(!familia) return;
-  if(!familias.includes(familia)) {
-    if(!confirm(`"${familia}" no es una familia estándar. ¿Usarla igual?`)) return;
-  }
-  itemsF[i]._destinoGasto = true;
-  itemsF[i]._familiaGasto = familia;
-  itemsF[i].conf = 1; // marcarlo como "resuelto" para que no bloquee el registro
-  renderTablaF();
-}
-
-function volverBodegaItem(i) {
-  if(!itemsF[i]) return;
-  delete itemsF[i]._destinoGasto;
-  delete itemsF[i]._familiaGasto;
-  // Recalcular conf: si tenía mapeo, era 1; si no, era 0
-  itemsF[i].conf = itemsF[i].mapeo ? 1 : 0;
-  renderTablaF();
 }
 
 function confirmarItem(i) {
@@ -3221,48 +2883,36 @@ function editF(i, campo, val) {
 function fGo(n) {
   ['fs1','fs2','fs3'].forEach((id,idx) => document.getElementById(id).style.display = idx===n-1?'block':'none');
   if(n===3){
-    // Solo considerar los items que faltan por registrar (no los ya procesados en la 1ra pasada XML)
-    const itemsAContar = itemsF.filter(it => !it._yaRegistrado);
-    const numYaReg = itemsF.length - itemsAContar.length;
     // tot = suma de (precio unitario × cantidad). Para XML, punit ya incluye IVA.
     // Para img/PDF, punit es neto.
-    const tot = itemsAContar.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+    const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
     let totConIVA, totNeto;
     if(tipoF === 'xml') {
+      // punit ya viene con IVA → tot es el total c/IVA
       totConIVA = tot;
       totNeto = tot / 1.19;
     } else {
+      // punit es neto → tot es el subtotal neto
       totNeto = tot;
       totConIVA = tot * 1.19;
     }
-    document.getElementById('fc1').textContent = itemsAContar.length;
+    document.getElementById('fc1').textContent = itemsF.length;
     document.getElementById('fc2').textContent = '$'+Math.round(totConIVA).toLocaleString('es-CL');
     document.getElementById('fc3').textContent = '$'+Math.round(totNeto).toLocaleString('es-CL');
-    const kg = itemsAContar.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactorItem(it),0);
+    const kg = itemsF.reduce((s,it)=>s+(it.cantEdit||it.cant)*getKgFactorItem(it),0);
     document.getElementById('fc4').textContent = '+'+kg.toFixed(1)+' kg';
-    // Alertas de precio: solo las de items por registrar (no de los ya registrados)
-    const nombresAContar = new Set(itemsAContar.map(it => it.mapeo));
-    const alertasFiltradas = (window._alertasPrecios||[]).filter(a => nombresAContar.has(a.ing));
+    const alertas = window._alertasPrecios||[];
     const div = document.getElementById('falerta');
-    // Aviso adicional: si hay items ya registrados, aclarar que están excluidos
-    const avisoYaReg = numYaReg > 0
-      ? `<div style="background:#e3f2fd;border:1px solid #90caf9;color:#1565c0;padding:8px 10px;border-radius:8px;margin-bottom:8px;font-size:12px">
-           🔒 ${numYaReg} ítem(s) ya registrados en la 1ra pasada (excluidos de este registro para evitar duplicación).
-         </div>`
-      : '';
-    if(alertasFiltradas.length>0){
+    if(alertas.length>0){
       div.style.display='block';
-      div.innerHTML = avisoYaReg + `<strong>⚠ ${alertasFiltradas.length} precio(s) con diferencia mayor al 5%:</strong><br>`+
-        alertasFiltradas.map(a => {
+      div.innerHTML = `<strong>⚠ ${alertas.length} precio(s) con diferencia mayor al 5%:</strong><br>`+
+        alertas.map(a => {
           const subio = a.d > 0;
           const signo = subio ? '+' : '';
           const color = subio ? '#c62828' : '#2e7d32';
           return `<span style="color:${color}">${a.ing}: factura $${a.pF.toLocaleString('es-CL')}/kg vs sistema $${a.pS.toLocaleString('es-CL')}/kg (${signo}${a.d}%)</span>`;
         }).join('<br>')+
         '<br><span style="font-size:11px">Se actualizarán automáticamente en Maestro_Precios.</span>';
-    } else if(avisoYaReg) {
-      div.style.display='block';
-      div.innerHTML = avisoYaReg;
     } else div.style.display='none';
   }
 }
@@ -3270,15 +2920,6 @@ function fGo(n) {
 async function registrarFactura() {
   const u = getUsuario();
   if(!u){alert('Selecciona un usuario.');return;}
-
-  // Deshabilitar botón INMEDIATAMENTE para evitar doble-click
-  // (antes se hacía después del confirm de duplicados, permitiendo ambos click en pasar)
-  const btnInicial = document.getElementById('btnreg');
-  if(btnInicial) {
-    if(btnInicial.disabled) return;  // ya está deshabilitado = ya está procesando
-    btnInicial.disabled = true;
-    btnInicial.textContent = 'Verificando...';
-  }
 
   // ── VALIDACIÓN DE DUPLICADO (imagen/PDF) ──────────────────────────────
   const fechaCheck = document.getElementById('ffecha').value;
@@ -3296,11 +2937,6 @@ async function registrarFactura() {
         });
         if(fechaPrevia) {
           if(!confirm(`⚠ ATENCIÓN: La factura folio ${nfactCheck} de ${provCheck} ya fue registrada el ${fechaPrevia}.\n\nSi continúas, se DUPLICARÁN los movimientos en bodega.\n\n¿Registrar de todos modos?`)) {
-            // Usuario canceló → rehabilitar botón
-            if(btnInicial) {
-              btnInicial.disabled = false;
-              btnInicial.textContent = 'Registrar entrada →';
-            }
             return;
           }
         }
@@ -3310,65 +2946,30 @@ async function registrarFactura() {
   // ──────────────────────────────────────────────────────────────────────
 
   const btn = document.getElementById('btnreg');
+  btn.disabled = true;
   btn.textContent = 'Registrando...';
   try {
     const fecha = document.getElementById('ffecha').value;
     const prov = document.getElementById('fprov').value;
     const nfact = document.getElementById('fnum').value;
     const obs = document.getElementById('fobs').value;
-    // Filtrar items ya registrados (en el flujo XML masivo se marcan con _yaRegistrado
-    // durante la primera pasada; aquí solo procesamos los que faltan)
-    // Separar items:
-    //   itemsBodega  → a Movimientos (con mapeo confirmado)
-    //   itemsGasto   → a Gastos_GS (marcados con _destinoGasto por el usuario)
-    //   itemsYaRegistrados → ya procesados en 1ra pasada XML, saltar
-    const itemsPendientes = itemsF.filter(it => !it._yaRegistrado);
-    const itemsBodega = itemsPendientes.filter(it => !it._destinoGasto);
-    const itemsGasto = itemsPendientes.filter(it => it._destinoGasto);
-
-    if(itemsBodega.length === 0 && itemsGasto.length === 0) {
-      btn.disabled = false;
-      btn.textContent = 'Registrar entrada →';
-      alert('No hay ítems pendientes por registrar.');
-      return;
-    }
-
     let registrados = 0;
-    const totOps = itemsBodega.length + itemsGasto.length;
-
-    // 1) Bodega → Movimientos
-    for(const it of itemsBodega){
+    for(const it of itemsF){
       const factor = getKgFactorItem(it);
       const kg = ((it.cantEdit||it.cant)*factor).toFixed(3);
       const pxkg = it.punit / factor;
-      btn.textContent = `Registrando ${++registrados}/${totOps}...`;
+      btn.textContent = `Registrando ${++registrados}/${itemsF.length}...`;
       const r = await gsPost('Movimientos',[fecha,'ENTRADA',it.mapeo||it.desc,kg,'Kg',Math.round(pxkg),Math.round(kg*pxkg),nfact,prov,u,obs||it.desc]);
       if(!r || !r.ok) throw new Error(`Error registrando ${it.desc}: ${r?.error||'sin respuesta'}`);
-      it._yaRegistrado = true;
-      it._kgRegistrado = kg;
     }
-
-    // 2) Gastos → Gastos_GS (una fila por ítem, con familia)
-    for(const it of itemsGasto){
-      const monto = Math.round(it.punit * (it.cantEdit||it.cant) * (tipoF==='xml' ? 1 : 1.19));
-      btn.textContent = `Registrando ${++registrados}/${totOps}...`;
-      const desc = `${prov} — ${it.desc}`;
-      const r = await gsPost('Gastos_GS',[fecha, desc, it._familiaGasto||'Otros gastos', 'Factura', nfact, monto, u]);
-      if(!r || !r.ok) throw new Error(`Error registrando gasto ${it.desc}: ${r?.error||'sin respuesta'}`);
-      it._yaRegistrado = true;
-    }
-
-    // Total de la factura (bodega + gastos) — para Facturas_Log
-    const tot = itemsPendientes.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
-    const habiaYaRegistrados = itemsF.some(it => it._kgRegistrado && it !== itemsPendientes[0]);
-    if(!habiaYaRegistrados) {
-      await gsPost('Facturas_Log',[fecha,prov,nfact,itemsPendientes.length,Math.round(tot * (tipoF==='xml' ? 1 : 1.19)),u,obs]);
-    }
+    const tot = itemsF.reduce((s,it)=>s+it.punit*(it.cantEdit||it.cant),0);
+    await gsPost('Facturas_Log',[fecha,prov,nfact,itemsF.length,Math.round(tot * (tipoF==='xml' ? 1 : 1.19)),u,obs]);
 
     // ── Actualizar Maestro_Precios en memoria (sin reescribir Sheets) ──────
-    // Solo actualizar precios de los que se registraron AHORA a bodega (los de gastos no van al Maestro).
+    // Los precios nuevos quedan en maestroPrecios para uso de la sesión actual.
+    // Para persistir cambios al Maestro, hay un botón aparte (futuro).
     try {
-      itemsBodega.forEach(it => {
+      itemsF.forEach(it => {
         const factor = getKgFactorItem(it);
         const pxkg = it.punit / factor;
         const nombre = (it.mapeo||it.desc).trim().toUpperCase();
@@ -3388,17 +2989,12 @@ async function registrarFactura() {
       newOpt.value = prov;
       document.getElementById('fprov-list').appendChild(newOpt);
     }
-    const nBodega = itemsBodega.length;
-    const nGasto = itemsGasto.length;
-    const nItems = nBodega + nGasto;
+    const nItems = itemsF.length;
     const fok = document.getElementById('fok');
     fok.style.display='block';
     fok.style.background='#e8f5e9';
     fok.style.color='#1b5e20';
-    const detalles = [];
-    if(nBodega > 0) detalles.push(`${nBodega} a bodega`);
-    if(nGasto > 0) detalles.push(`${nGasto} a Gastos`);
-    fok.innerHTML=`✓ ${nItems} ítem(s) registrado(s) — ${detalles.join(' + ')}.<br><span style="font-size:12px;opacity:0.8">${tipoF==='xml' && xmlPendienteMapeo.length > nItems ? 'Pasando a la siguiente factura...' : 'Volviendo al inicio en 3 segundos...'}</span>`;
+    fok.innerHTML=`✓ ${nItems} ítems registrados correctamente.<br><span style="font-size:12px;opacity:0.8">${tipoF==='xml' && xmlPendienteMapeo.length > nItems ? 'Pasando a la siguiente factura...' : 'Volviendo al inicio en 3 segundos...'}</span>`;
     btn.textContent = '✓ Registrado';
 
     // Si veníamos de un lote XML: remover esta factura del estado y avanzar
@@ -4495,6 +4091,150 @@ let invIngredientes = []; // lista de ingredientes en inventario
 let invTodosIng = []; // todos los ingredientes del maestro para búsqueda
 let invIngSeleccionado = null;
 
+// ══════════════════════════════════════════════════════════════════════
+// IMPRESIÓN DE INVENTARIO — versiones ciega y de revisión
+// ══════════════════════════════════════════════════════════════════════
+
+function _construirHTMLImpresionInventario(modo) {
+  // modo: 'ciego' | 'revision'
+  const fecha = document.getElementById('inv-fecha').value || new Date().toISOString().substring(0,10);
+  const respSel = document.getElementById('inv-usuario');
+  const responsable = respSel && respSel.value ? respSel.value : '__________________';
+
+  // Ordenar todos los ingredientes alfabéticamente
+  const items = [...invIngredientes].sort((a,b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  const filasHTML = items.map(ing => {
+    const stock = (ing.stockSistema||0).toFixed(3);
+    const um = ing.um || 'Kg';
+    const valFis = ing._valorFisico !== undefined && ing._valorFisico !== '' ? parseFloat(ing._valorFisico) : null;
+
+    if(modo === 'ciego') {
+      return `<tr>
+        <td style="padding:6px 4px;border-bottom:1px solid #ccc">${ing.nombre}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #ccc;text-align:center;color:#666">${um}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #333;width:120px">&nbsp;</td>
+      </tr>`;
+    } else {
+      // modo revisión: muestra sistema, físico y diferencia
+      let diffTxt = '—', diffColor = '#888';
+      if(valFis !== null) {
+        const diff = valFis - (ing.stockSistema||0);
+        const signo = diff >= 0 ? '+' : '';
+        diffTxt = `${signo}${diff.toFixed(3)}`;
+        diffColor = Math.abs(diff) < 0.001 ? '#2e7d32' : diff > 0 ? '#c62828' : '#e65100';
+      }
+      const fisTxt = valFis !== null ? valFis.toFixed(3) : '—';
+      return `<tr>
+        <td style="padding:6px 4px;border-bottom:1px solid #eee">${ing.nombre}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #eee;text-align:center;color:#666">${um}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #eee;text-align:right">${stock}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600">${fisTxt}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #eee;text-align:right;color:${diffColor};font-weight:600">${diffTxt}</td>
+      </tr>`;
+    }
+  }).join('');
+
+  const encabezadosCiego = `
+    <tr style="background:#0B3D6B;color:white">
+      <th style="padding:8px 4px;text-align:left">Ingrediente</th>
+      <th style="padding:8px 4px;text-align:center;width:60px">UM</th>
+      <th style="padding:8px 4px;text-align:right;width:120px">Cantidad física</th>
+    </tr>`;
+  const encabezadosRevision = `
+    <tr style="background:#0B3D6B;color:white">
+      <th style="padding:8px 4px;text-align:left">Ingrediente</th>
+      <th style="padding:8px 4px;text-align:center;width:60px">UM</th>
+      <th style="padding:8px 4px;text-align:right;width:100px">Stock sistema</th>
+      <th style="padding:8px 4px;text-align:right;width:100px">Cantidad física</th>
+      <th style="padding:8px 4px;text-align:right;width:100px">Diferencia</th>
+    </tr>`;
+
+  const titulo = modo === 'ciego'
+    ? 'Toma de Inventario Físico — Hoja para contar'
+    : 'Toma de Inventario Físico — Revisión';
+
+  const firma = modo === 'ciego' ? `
+    <div style="margin-top:60px;page-break-inside:avoid">
+      <div style="display:flex;justify-content:space-between;gap:60px">
+        <div style="flex:1;text-align:center">
+          <div style="border-top:1px solid #333;padding-top:6px;font-size:12px">Firma responsable del conteo</div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div style="border-top:1px solid #333;padding-top:6px;font-size:12px">Firma supervisor</div>
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:20px;font-size:11px;color:#666">
+        Fecha: ${fecha} · Responsable: ${responsable} · Total ingredientes: ${items.length}
+      </div>
+    </div>
+  ` : '';
+
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8">
+      <title>${titulo}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+        h1 { font-size: 18px; margin: 0 0 4px 0; }
+        .subtitulo { font-size: 12px; color: #666; margin-bottom: 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { font-size: 12px; }
+        @media print {
+          @page { margin: 15mm; }
+          body { margin: 0; }
+          .no-print { display: none !important; }
+          thead { display: table-header-group; }
+          tr { page-break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>SH Gestión y Servicios SpA — ${titulo}</h1>
+      <div class="subtitulo">
+        Fecha: <strong>${fecha}</strong> ·
+        Responsable: <strong>${responsable}</strong> ·
+        Total ingredientes: <strong>${items.length}</strong>
+        ${modo === 'ciego' ? '<br><em style="color:#c62828">📋 Escribe la cantidad física contada. NO consultes el sistema.</em>' : ''}
+      </div>
+      <table>
+        <thead>${modo === 'ciego' ? encabezadosCiego : encabezadosRevision}</thead>
+        <tbody>${filasHTML}</tbody>
+      </table>
+      ${firma}
+      <div class="no-print" style="margin-top:30px;text-align:center">
+        <button onclick="window.print()" style="padding:10px 24px;font-size:14px;background:#0B3D6B;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Imprimir</button>
+        <button onclick="window.close()" style="padding:10px 24px;font-size:14px;background:#eee;border:none;border-radius:6px;cursor:pointer;margin-left:8px">Cerrar</button>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+function imprimirInventarioCiego() {
+  if(!invIngredientes || invIngredientes.length === 0) {
+    alert('Primero carga los ingredientes del inventario.');
+    return;
+  }
+  const html = _construirHTMLImpresionInventario('ciego');
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
+function imprimirInventarioRevision() {
+  if(!invIngredientes || invIngredientes.length === 0) {
+    alert('Primero carga los ingredientes del inventario.');
+    return;
+  }
+  const html = _construirHTMLImpresionInventario('revision');
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
 async function cargarInventario() {
   document.getElementById('inv-loading').style.display = 'block';
   document.getElementById('inv-tabla-wrap').style.display = 'none';
@@ -4556,7 +4296,7 @@ async function cargarInventario() {
       const idx = invIngredientes.findIndex(r => r.nombre.toUpperCase() === String(br[1]).toUpperCase());
       if(idx >= 0) {
         const inp = document.getElementById(`inv-fis-${idx}`);
-        if(inp) { inp.value = br[2]; calcDiffKey(inp); }
+        if(inp) { inp.value = br[2]; calcDiff(idx); }
       }
     });
     window._borradorInvData = null;
