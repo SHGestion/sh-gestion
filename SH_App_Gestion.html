@@ -4556,7 +4556,7 @@ async function cargarInventario() {
       const idx = invIngredientes.findIndex(r => r.nombre.toUpperCase() === String(br[1]).toUpperCase());
       if(idx >= 0) {
         const inp = document.getElementById(`inv-fis-${idx}`);
-        if(inp) { inp.value = br[2]; calcDiff(idx); }
+        if(inp) { inp.value = br[2]; calcDiffKey(inp); }
       }
     });
     window._borradorInvData = null;
