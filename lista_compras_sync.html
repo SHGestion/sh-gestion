@@ -24,6 +24,10 @@
   .prov-head{display:flex;justify-content:space-between;align-items:center;padding:13px 18px;background:var(--panel2);cursor:pointer;user-select:none}
   .prov-head h2{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:10px}
   .badge{background:var(--accent2);color:#04101f;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px}
+  .badge.ok{background:var(--accent);color:#04140a}
+  .prov.completo{opacity:.55}
+  .prov.completo .prov-head{cursor:pointer}
+  .prov.completo h2{color:var(--done)}
   .prov-total{color:var(--muted);font-size:.88rem}
   .prov-total b{color:var(--accent)}
   table{width:100%;border-collapse:collapse}
@@ -34,6 +38,12 @@
   tr.done td .reassign{text-decoration:none}
   .chk{width:20px;height:20px;cursor:pointer;accent-color:var(--accent)}
   .reassign{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:4px 8px;border-radius:8px;font-size:.82rem;cursor:pointer}
+  .expand{background:transparent;border:none;color:var(--accent2);cursor:pointer;font-size:.9rem;margin-right:6px;padding:0 2px}
+  tr.detalle td{padding-top:0;border-top:none}
+  .dias{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 8px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:.82rem;color:var(--txt)}
+  .chip b{color:var(--accent2);font-variant-numeric:tabular-nums}
+  .chip.vacio{color:var(--muted);border-style:dashed}
   .empty{color:var(--muted);text-align:center;padding:40px}
   .hidden{display:none}
   .foot{color:var(--muted);font-size:.78rem;text-align:center;margin-top:24px;line-height:1.5}
@@ -114,25 +124,40 @@ function render(){
   items.forEach(d=>{ (provs[d.proveedor]=provs[d.proveedor]||[]).push(d); });
 
   let html='';
-  Object.keys(provs).sort().forEach(p=>{
+  const orden = Object.keys(provs).sort((a,b)=>{
+    const ca = provs[a].every(d=>d.comprado) ? 1 : 0;
+    const cb = provs[b].every(d=>d.comprado) ? 1 : 0;
+    if(ca!==cb) return ca-cb;          // pendientes arriba, completos abajo
+    return a.localeCompare(b);          // alfabético dentro de cada grupo
+  });
+  orden.forEach(p=>{
     const visibles=provs[p].filter(d=>d.ingrediente.toLowerCase().includes(q));
     if(!visibles.length) return;
     const tot=provs[p].reduce((s,d)=>s+(d.comprado?0:(Number(d.cantidad)||0)),0);
     const pend=provs[p].filter(d=>!d.comprado).length;
-    html+=`<div class="prov">
+    const completo = pend===0;   // todos comprados → contraer
+    html+=`<div class="prov${completo?' completo':''}">
       <div class="prov-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
-        <h2>${p} <span class="badge">${pend} pend.</span></h2>
-        <span class="prov-total">Cantidad pendiente: <b>${fmt(tot)}</b></span>
+        <h2>${completo?'✓ ':''}${p} <span class="badge${completo?' ok':''}">${completo?'completo':pend+' pend.'}</span></h2>
+        <span class="prov-total">${completo?'Todo en el carro':'Cantidad pendiente: <b>'+fmt(tot)+'</b>'}</span>
       </div>
-      <table>
+      <table class="${completo?'hidden':''}">
         <thead><tr><th style="width:40px"></th><th>Ingrediente</th><th class="num">Cantidad</th><th style="width:110px">Mover a</th></tr></thead>
         <tbody>`;
     visibles.forEach(d=>{
+      const tieneDias = d.dias && d.dias.length;
+      const chips = tieneDias
+        ? d.dias.map(x=>`<span class="chip"><b>${x.fecha}</b> ${fmt(x.cantidad)}</span>`).join('')
+        : '<span class="chip vacio">Sin detalle por día</span>';
       html+=`<tr class="${d.comprado?'done':''}">
         <td><input type="checkbox" class="chk" ${d.comprado?'checked':''} onchange="toggle(${d.row},this.checked)"></td>
-        <td>${d.ingrediente}</td>
+        <td>${tieneDias?`<button class="expand" onclick="verDias(${d.row})" title="Ver días de consumo">▸</button>`:''}${d.ingrediente}</td>
         <td class="num">${fmt(d.cantidad)}</td>
         <td><button class="reassign" onclick="move(${d.row})">Cambiar</button></td>
+      </tr>
+      <tr class="detalle hidden" id="det-${d.row}">
+        <td></td>
+        <td colspan="3"><div class="dias">${chips}</div></td>
       </tr>`;
     });
     html+='</tbody></table></div>';
@@ -143,6 +168,15 @@ function render(){
   $('#cDone').textContent=done;
   $('#cTotal').textContent=items.length;
   $('#cPend').textContent=fmt(items.reduce((s,d)=>s+(d.comprado?0:(Number(d.cantidad)||0)),0));
+}
+
+function verDias(row){
+  const fila=document.getElementById('det-'+row);
+  if(!fila) return;
+  fila.classList.toggle('hidden');
+  // girar la flechita del botón
+  const btn=document.querySelector(`tr:not(.detalle) button.expand[onclick="verDias(${row})"]`);
+  if(btn) btn.textContent = fila.classList.contains('hidden') ? '▸' : '▾';
 }
 
 async function toggle(row,checked){
